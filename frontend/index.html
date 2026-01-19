@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frop - File Sharing</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Frop</h1>
+            <p class="tagline">Drop files, anywhere</p>
+        </header>
+
+        <!-- Landing State: Create or Join -->
+        <div id="landing" class="view active">
+            <div class="actions">
+                <button id="createRoom" class="btn primary">Create Room</button>
+                <div class="separator">or</div>
+                <div class="join-form">
+                    <input type="text" id="codeInput" placeholder="Enter code" maxlength="6" autocomplete="off">
+                    <button id="joinRoom" class="btn">Join</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Waiting State: Showing code, waiting for peer -->
+        <div id="waiting" class="view">
+            <div class="code-display">
+                <p>Share this code:</p>
+                <div id="roomCode" class="code"></div>
+                <p class="hint">Waiting for someone to join...</p>
+            </div>
+            <button id="cancelRoom" class="btn secondary">Cancel</button>
+        </div>
+
+        <!-- Connected State: Ready to transfer files -->
+        <div id="connected" class="view">
+            <div class="status-bar">
+                <span class="status-dot connected"></span>
+                <span>Connected</span>
+            </div>
+
+            <div id="dropzone" class="dropzone">
+                <input type="file" id="fileInput" multiple hidden>
+                <input type="file" id="folderInput" webkitdirectory hidden>
+                <div class="dropzone-content">
+                    <p>Drag & drop files here</p>
+                    <p class="hint">or</p>
+                    <div class="dropzone-buttons">
+                        <button id="selectFiles" class="btn">Select Files</button>
+                        <button id="selectFolder" class="btn">Select Folder</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="transferList" class="transfer-list">
+                <!-- Transfer items will be added here -->
+            </div>
+        </div>
+
+        <!-- Disconnected State -->
+        <div id="disconnected" class="view">
+            <p>Connection lost</p>
+            <button id="reconnect" class="btn primary">Reconnect</button>
+            <button id="backToLanding" class="btn secondary">Start Over</button>
+        </div>
+    </div>
+
+    <script src="js/websocket.js"></script>
+    <script src="js/transfer.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
