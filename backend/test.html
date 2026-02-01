@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WS Test</title>
+</head>
+<body>
+    <button onclick="connect()">Connect</button>
+    <button onclick="send()">Send</button>
+    <input id="msg" value="hello">
+    <pre id="log"></pre>
+
+    <script>
+        let ws;
+        const log = (msg) => document.getElementById('log').textContent += msg + '\n';
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8080/ws');
+            ws.onopen = () => log('connected');
+            ws.onmessage = (e) => log('recv: ' + e.data);
+            ws.onclose = () => log('closed');
+            ws.onerror = (e) => log('error: ' + e);
+        }
+
+        function send() {
+            ws.send(document.getElementById('msg').value);
+        }
+    </script>
+</body>
+</html>

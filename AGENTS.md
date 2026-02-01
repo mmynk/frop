@@ -8,7 +8,7 @@ Frop is a real-time file sharing webapp (like AirDrop, but universal). Two users
 
 ## Architecture
 
-- **Frontend**: Vanilla HTML/CSS/JavaScript (no UI framework)
+- **Frontend**: TypeScript, bundled with esbuild (no UI framework)
 - **Backend**: Go with WebSocket for real-time communication
 - **API**: REST for room creation, WebSocket for file transfer
 
@@ -51,10 +51,12 @@ Directory structure is preserved via relative paths in file names.
 frontend/
 ├── index.html
 ├── css/style.css
-└── js/
-    ├── app.js          # Main UI logic and state
-    ├── websocket.js    # WebSocket connection wrapper
-    └── transfer.js     # File chunking and reassembly
+├── src/
+│   └── main.ts         # Main app logic, state, WebSocket client
+├── dist/
+│   └── bundle.js       # Built output (esbuild)
+├── package.json
+└── tsconfig.json
 
 backend/
 ├── cmd/server/main.go  # Entry point, HTTP routes
@@ -78,6 +80,11 @@ go test -v -run TestRoomJoin ./internal/room  # Single test
 
 ### Frontend
 ```bash
+cd frontend
+bun install                     # Install deps
+bun run build                   # Build once
+bun run watch                   # Build on change
+
 # Serve via Go backend, or for standalone dev:
 python3 -m http.server 8080 --directory frontend
 ```
@@ -87,3 +94,11 @@ python3 -m http.server 8080 --directory frontend
 - `POST /api/room` → Creates room, returns `{ "code": "ABC123" }`
 - `GET /api/room/:code` → Check if room exists and status
 - `GET /ws` → WebSocket upgrade for file transfer
+
+## Development Approach
+
+**Division of labor:**
+- **Claude (AI)**: Frontend TypeScript - UI logic, state management, WebSocket client, file handling
+- **Human**: Backend Go - HTTP server, room management, WebSocket server, file relay
+
+This split allows the human to learn Go by implementing the backend while Claude handles the frontend implementation.
