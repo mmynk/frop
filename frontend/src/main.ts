@@ -135,15 +135,32 @@ function handleWsMessage(msg: WsMessage): void {
     case "connected":
       console.log("[WS] Paired with peer! Token:", msg.sessionToken);
       state.sessionToken = msg.sessionToken ?? null;
+
+      // Update browser URL with session token for easy reconnection
+      if (state.sessionToken) {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.set('s', state.sessionToken);
+        window.history.replaceState({}, '', newUrl.toString());
+        console.log("[URL] Updated with session token");
+      }
+
       showView("connected");
       break;
 
     case "failed":
       console.error("[WS] Operation failed");
-      // TODO: Show error to user
-      if (state.view === "waiting") {
-        showView("landing");
-      }
+
+      // Clear session token from state and URL
+      state.sessionToken = null;
+      const urlWithoutToken = new URL(window.location.href);
+      urlWithoutToken.searchParams.delete('s');
+      window.history.replaceState({}, '', urlWithoutToken.toString());
+
+      // Show landing view and log error
+      console.log("[Room] Session expired or invalid - returning to landing");
+      showView("landing");
+
+      // TODO: Show error notification to user (e.g., "Session expired. Please create or join a new room.")
       break;
 
     case "peer_disconnected":
@@ -285,7 +302,27 @@ function setupEventListeners(): void {
 function init(): void {
   console.log("[Frop] Initializing...");
   setupEventListeners();
-  showView("landing");
+
+  // Check for session token in URL parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const sessionToken = urlParams.get('s');
+
+  if (sessionToken && sessionToken.trim()) {
+    // Auto-reconnect with session token from URL
+    console.log("[Frop] Found session token in URL, auto-reconnecting...");
+    state.sessionToken = sessionToken.trim();
+    showView("waiting"); // Show waiting view as visual feedback
+
+    const ws = connectWebSocket();
+    ws.onopen = () => {
+      console.log("[WS] Connected, sending reconnect message...");
+      sendMessage({ type: "reconnect", sessionToken: state.sessionToken! });
+    };
+  } else {
+    // Normal flow: show landing page
+    showView("landing");
+  }
+
   console.log("[Frop] Ready!");
 }
 
