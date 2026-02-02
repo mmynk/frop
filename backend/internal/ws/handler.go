@@ -2,7 +2,9 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"frop/internal/room"
+	"frop/internal/session"
 	"frop/models"
 	"log/slog"
 	"net/http"
@@ -19,9 +21,7 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	return &Client{
-		conn: nil,
-	}
+	return new(Client)
 }
 
 func ServeHttp(w http.ResponseWriter, r *http.Request) {
@@ -36,12 +36,18 @@ func ServeHttp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Client) handle() {
-	defer c.conn.Close()
+	defer func() {
+		c.conn.Close()
+		if s, exists := session.LookupSessionForConn(c.conn); exists {
+			s.Disconnect(c.conn)
+		}
+	}()
 
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
 			slog.Error("Failed to read msg", "error", err)
+			c.sendFailureResponse()
 			return
 		}
 
@@ -50,30 +56,59 @@ func (c *Client) handle() {
 		err = json.Unmarshal(msg, &req)
 		if err != nil {
 			slog.Error("Failed to decode msg", "error", err)
+			c.sendFailureResponse()
+			continue
 		}
 
 		err = c.processRequest(&req)
 		if err != nil {
 			slog.Error("Failed to process request", "error", err)
+			c.sendFailureResponse()
+			continue
 		}
-
-		res := &models.WsResponse{Type: "connected"}
-		c.conn.WriteJSON(res)
-		slog.Info("Request processed successfully", "response", res)
 	}
 }
 
 func (c *Client) processRequest(req *models.WsRequest) error {
 	slog.Info("Processing request", "type", req.Type)
-	// Only one type of request as of now
-	if req.Type == string(Join) {
-		err := room.JoinRoom(req.Code, c.conn)
-		if err != nil {
-			return err
-		}
-		slog.Info("Successfully joined room", "code", req.Code)
+	switch req.Type {
+	case models.Join:
+		return c.handleJoin(req)
+	case models.Reconnect:
+		return c.handleReconnect(req)
 	}
+
+	return fmt.Errorf("Request type did not match any operation %s", req.Type)
+}
+
+func (c *Client) handleJoin(req *models.WsRequest) error {
+	r, err := room.JoinRoom(req.Code, c.conn)
+	if err != nil {
+		return err
+	}
+	slog.Info("Successfully joined room", "code", req.Code)
+
+	if len(r.Peers) == 2 {
+		// both peers have joined, create a new session
+		s := session.NewSession(r.Peers)
+		s.Notify()
+	}
+
 	return nil
+}
+
+func (c *Client) handleReconnect(req *models.WsRequest) error {
+	token := req.SessionToken
+	s, exists := session.GetSession(token)
+	if !exists {
+		return fmt.Errorf("No session found with token=%s", token)
+	}
+	peer := &room.Peer{Conn: c.conn}
+	return s.Reconnect(peer)
+}
+
+func (c *Client) sendFailureResponse() {
+	c.conn.WriteJSON(&models.WsResponse{Type: models.Failed})
 }
 
 func (c *Client) Close() error {

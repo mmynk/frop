@@ -2,6 +2,7 @@ package room
 
 import (
 	"fmt"
+	"frop/models"
 	"log/slog"
 	"math/rand/v2"
 
@@ -9,45 +10,27 @@ import (
 )
 
 var alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-var roomStore = newStore()
 
 type Peer struct {
-	conn *websocket.Conn
+	Conn *websocket.Conn
+}
+
+func (p *Peer) Is(conn *websocket.Conn) bool {
+	return p.Conn == conn
+}
+
+func (p *Peer) SendMessage(res *models.WsResponse) {
+	p.Conn.WriteJSON(res)
 }
 
 type Room struct {
-	peers []*Peer
-	code  string
-}
-
-type store struct {
-	rooms map[string]*Room
-	// TODO: mutex for multiple goroutines
-}
-
-func newStore() *store {
-	rooms := make(map[string]*Room)
-	return &store{rooms}
-}
-
-func NewRoom(peer1 *websocket.Conn) *Room {
-	src := &Peer{
-		conn: peer1,
-	}
-	peers := make([]*Peer, 0, 2)
-	peers[0] = src
-	code := generateRandomCode()
-	room := &Room{
-		peers,
-		code,
-	}
-	roomStore.rooms[code] = room
-	return room
+	Peers []*Peer
+	Code  string
 }
 
 // CreateRoom creates a new empty room, stores it, and returns the code
 func CreateRoom() string {
-	peers := make([]*Peer, 2)
+	peers := make([]*Peer, 0, 2)
 	code := generateRandomCode()
 	room := &Room{
 		peers,
@@ -58,26 +41,21 @@ func CreateRoom() string {
 	return code
 }
 
-func GetRoom(code string) (bool, *Room) {
-	if room, exists := roomStore.rooms[code]; exists {
-		slog.Info("Found room", "code", code)
-		return true, room
-	} else {
-		slog.Warn("No room found", "code", code)
-		return false, nil
-	}
+func GetRoom(code string) (*Room, bool) {
+	room, exists := roomStore.rooms[code]
+	return room, exists
 }
 
-func JoinRoom(code string, conn *websocket.Conn) error {
+func JoinRoom(code string, conn *websocket.Conn) (*Room, error) {
 	room, exists := roomStore.rooms[code]
 	if !exists {
 		slog.Error("No room found", "code", code)
-		return fmt.Errorf("No room found for code=%s", code)
+		return nil, fmt.Errorf("No room found for code=%s", code)
 	}
 	peer := &Peer{conn}
-	room.peers = append(room.peers, peer)
+	room.Peers = append(room.Peers, peer)
 	slog.Info("Successfully joined room", "code", code)
-	return nil
+	return room, nil
 }
 
 // generateRandomCode generates a random six digit alpha-numeric code, eg: ABC123
@@ -89,9 +67,4 @@ func generateRandomCode() string {
 	}
 	suffix := rand.IntN(1000)
 	return fmt.Sprintf("%s%03d", prefix, suffix)
-}
-
-func (r *Room) Connect(dst *Peer) {
-	r.peers[1] = dst
-	// send offer
 }
