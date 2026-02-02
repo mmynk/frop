@@ -102,3 +102,11 @@ python3 -m http.server 8080 --directory frontend
 - **Human**: Backend Go - HTTP server, room management, WebSocket server, file relay
 
 This split allows the human to learn Go by implementing the backend while Claude handles the frontend implementation.
+
+**Test-Driven Development (TDD):**
+For new backend features, Claude writes integration tests first that define the expected behavior. Human then implements until tests pass. This approach:
+- Provides clear "done" criteria
+- Documents expected API contracts
+- Catches regressions early
+
+Run tests with: `cd backend && go test -v ./...`
