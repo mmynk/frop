@@ -44,15 +44,17 @@ Last updated: 2026-02-01
 - [x] `POST /api/room` endpoint returning `{"code":"ABC123"}`
 - [x] Models package for API responses
 - [x] Test for code generation
+- [x] WebSocket `/ws` endpoint
+- [x] WebSocket message parsing (JSON)
+- [x] `JoinRoom` - attach peer to existing room
+- [x] Send `"connected"` response after join
+- [x] Integration tests for full room flow
 
 ### In Progress
-- [ ] WebSocket `/ws` endpoint
+- [ ] Session token generation (UUID)
 
 ### Not Started
 - [ ] `GET /api/room/:code` endpoint
-- [ ] WebSocket `/ws` endpoint (currently commented out)
-- [ ] WebSocket message routing (join, file_start, file_end, etc.)
-- [ ] Session token generation (UUID)
 - [ ] Binary frame relay between peers
 - [ ] Peer disconnect detection
 - [ ] Reconnection flow
@@ -63,9 +65,9 @@ Last updated: 2026-02-01
 ## Milestone Tracker
 
 ### Milestone 1: Room Creation & Joining
-- [ ] Backend: POST /api/room returns code
-- [ ] Backend: WebSocket accepts "join" message
-- [ ] Backend: Pairs two peers, sends "connected" with session token
+- [x] Backend: POST /api/room returns code
+- [x] Backend: WebSocket accepts "join" message
+- [x] Backend: Pairs two peers, sends "connected" *(session token pending)*
 - [ ] Frontend: Create room button calls API, shows code
 - [ ] Frontend: Join room connects via WebSocket
 - [ ] Frontend: View switches to "connected" state
@@ -94,4 +96,8 @@ Last updated: 2026-02-01
 - Created this progress doc
 - Committed scaffolding
 - Implemented room creation: POST /api/room endpoint working
-- Next: WebSocket /ws endpoint with join message handling
+- Implemented WebSocket /ws with join message handling
+- Fixed: Client-per-connection (was sharing state across connections)
+- Fixed: json.Unmarshal for WebSocket messages (was using HTTP body decoder)
+- Added integration tests (TDD approach)
+- Next: Session tokens, then frontend wiring
