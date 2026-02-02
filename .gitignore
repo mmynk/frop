@@ -6,3 +6,6 @@ frontend/dist/
 
 # OS files
 .DS_Store
+
+# Claude Code local settings
+.claude/
