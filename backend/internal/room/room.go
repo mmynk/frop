@@ -34,7 +34,7 @@ func NewRoom(peer1 *websocket.Conn) *Room {
 	src := &Peer{
 		conn: peer1,
 	}
-	peers := make([]*Peer, 2)
+	peers := make([]*Peer, 0, 2)
 	peers[0] = src
 	code := generateRandomCode()
 	room := &Room{
@@ -60,10 +60,24 @@ func CreateRoom() string {
 
 func GetRoom(code string) (bool, *Room) {
 	if room, exists := roomStore.rooms[code]; exists {
+		slog.Info("Found room", "code", code)
 		return true, room
 	} else {
+		slog.Warn("No room found", "code", code)
 		return false, nil
 	}
+}
+
+func JoinRoom(code string, conn *websocket.Conn) error {
+	room, exists := roomStore.rooms[code]
+	if !exists {
+		slog.Error("No room found", "code", code)
+		return fmt.Errorf("No room found for code=%s", code)
+	}
+	peer := &Peer{conn}
+	room.peers = append(room.peers, peer)
+	slog.Info("Successfully joined room", "code", code)
+	return nil
 }
 
 // generateRandomCode generates a random six digit alpha-numeric code, eg: ABC123

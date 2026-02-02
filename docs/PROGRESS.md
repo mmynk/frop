@@ -39,14 +39,16 @@ Last updated: 2026-02-01
 - [x] Basic HTTP server structure
 - [x] Static file serving from frontend/
 - [x] Go module setup with gorilla/websocket
+- [x] 6-character room code generation (3 letters + 3 digits)
+- [x] Room store (in-memory map of active rooms)
+- [x] `POST /api/room` endpoint returning `{"code":"ABC123"}`
+- [x] Models package for API responses
+- [x] Test for code generation
 
 ### In Progress
-- [ ] Room management system
+- [ ] WebSocket `/ws` endpoint
 
 ### Not Started
-- [ ] 6-character room code generation
-- [ ] Room store (in-memory map of active rooms)
-- [ ] `POST /api/room` endpoint
 - [ ] `GET /api/room/:code` endpoint
 - [ ] WebSocket `/ws` endpoint (currently commented out)
 - [ ] WebSocket message routing (join, file_start, file_end, etc.)
@@ -90,4 +92,6 @@ Last updated: 2026-02-01
 - Reviewed project state after initial scaffolding
 - Updated AGENTS.md with TypeScript setup and dev approach
 - Created this progress doc
-- Next: Commit current state, then start Milestone 1
+- Committed scaffolding
+- Implemented room creation: POST /api/room endpoint working
+- Next: WebSocket /ws endpoint with join message handling

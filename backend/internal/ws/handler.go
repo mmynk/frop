@@ -1,11 +1,11 @@
 package ws
 
 import (
-	"fmt"
+	"encoding/json"
+	"frop/internal/room"
+	"frop/models"
 	"log/slog"
-	"math/rand"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -24,20 +24,18 @@ func NewClient() *Client {
 	}
 }
 
-func (c *Client) ServeHttp(w http.ResponseWriter, r *http.Request) {
+func ServeHttp(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		slog.Error("Failed to upgrade http connection", "error", err)
 		return
 	}
 
-	c.conn = conn
-
-	go c.read()
-	go c.write()
+	client := &Client{conn: conn}
+	go client.handle()
 }
 
-func (c *Client) read() {
+func (c *Client) handle() {
 	defer c.conn.Close()
 
 	for {
@@ -46,20 +44,36 @@ func (c *Client) read() {
 			slog.Error("Failed to read msg", "error", err)
 			return
 		}
+
 		slog.Info("Read message", "message", string(msg))
+		var req models.WsRequest
+		err = json.Unmarshal(msg, &req)
+		if err != nil {
+			slog.Error("Failed to decode msg", "error", err)
+		}
+
+		err = c.processRequest(&req)
+		if err != nil {
+			slog.Error("Failed to process request", "error", err)
+		}
+
+		res := &models.WsResponse{Type: "connected"}
+		c.conn.WriteJSON(res)
+		slog.Info("Request processed successfully", "response", res)
 	}
 }
 
-func (c *Client) write() {
-	for {
-		msg := fmt.Sprintf("Lucky number %d", rand.Intn(100))
-		err := c.conn.WriteMessage(websocket.TextMessage, []byte(msg))
+func (c *Client) processRequest(req *models.WsRequest) error {
+	slog.Info("Processing request", "type", req.Type)
+	// Only one type of request as of now
+	if req.Type == string(Join) {
+		err := room.JoinRoom(req.Code, c.conn)
 		if err != nil {
-			slog.Error("Failed to write msg", "error", err)
-			return
+			return err
 		}
-		time.Sleep(5 * time.Second)
+		slog.Info("Successfully joined room", "code", req.Code)
 	}
+	return nil
 }
 
 func (c *Client) Close() error {

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"frop/internal/room"
+	"frop/internal/ws"
 	"frop/models"
 )
 
@@ -16,8 +17,7 @@ func main() {
 		port = "8080"
 	}
 
-	// client := ws.NewClient()
-	// http.HandleFunc("/ws", client.ServeHttp)
+	http.HandleFunc("/ws", ws.ServeHttp)
 
 	http.HandleFunc("POST /api/room", handleCreateRoom)
 	http.Handle("/", http.FileServer(http.Dir("../frontend")))
