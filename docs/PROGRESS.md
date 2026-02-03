@@ -2,7 +2,7 @@
 
 This document tracks implementation progress to help maintain context across sessions.
 
-## Current Status: Milestone 1 Complete ✅ + URL-based Reconnection
+## Current Status: Milestone 2 Complete ✅ — File Transfer Working!
 
 Last updated: 2026-02-02
 
@@ -23,11 +23,15 @@ Last updated: 2026-02-02
 - [x] Reconnection handling with session tokens
 - [x] URL-based session tokens (`?s=token` for auto-reconnect on page load/refresh)
 
+- [x] File selection (button) and drag-drop handling
+- [x] File chunking (256 KB) and sending via WebSocket binary frames
+- [x] File receiving with chunk reassembly and auto-download
+- [x] Progress bar UI updates during transfer
+- [x] Folder selection with relative path preservation
+- [x] Send queue for sequential file transfer (prevents interleaving)
+- [x] XSS-safe filename rendering
+
 ### Not Started
-- [ ] File selection and drag-drop handling
-- [ ] File chunking for transfer
-- [ ] File reassembly on receive
-- [ ] Progress tracking UI updates
 - [ ] Error display improvements
 
 ---
@@ -53,9 +57,14 @@ Last updated: 2026-02-02
 - [x] Reconnection flow with session tokens
 - [x] Integration tests for session tokens and reconnection
 
+- [x] Binary frame relay between peers (inline forwarding in handler.go)
+- [x] `file_start` / `file_end` JSON framing for transfer control
+- [x] `GetPeer(conn)` for finding the other peer in a session
+- [x] Integration tests for file transfer (single-chunk, multi-chunk, bidirectional, no-session)
+- [x] Peer struct extracted to own file with `SendRequest`, `SendResponse`, `SendChunk`
+
 ### Not Started
 - [ ] `GET /api/room/:code` endpoint
-- [ ] Binary frame relay between peers
 - [ ] Room expiration/cleanup
 
 ---
@@ -72,18 +81,22 @@ Last updated: 2026-02-02
 - [x] Frontend: View switches to "connected" state
 - [x] Frontend: Reconnection handling
 
-### Milestone 2: Basic File Transfer ← CURRENT
-- [ ] Frontend: File selection via button or drag-drop
-- [ ] Frontend: Chunk file and send via WebSocket
-- [ ] Backend: Relay binary frames to peer
-- [ ] Frontend: Receive chunks and reassemble file
-- [ ] Frontend: Trigger download of received file
+### Milestone 2: Basic File Transfer ✅
+- [x] Backend: Relay binary frames to peer
+- [x] Backend: `file_start`/`file_end` JSON framing relay
+- [x] Backend: Integration tests (TDD — tests written first, then implementation)
+- [x] Frontend: File selection via button or drag-drop
+- [x] Frontend: Chunk file (256 KB) and send via WebSocket
+- [x] Frontend: Receive chunks and reassemble file
+- [x] Frontend: Trigger download of received file
+- [x] Frontend: Progress bars during transfer
+- [x] Frontend: Folder support with relative paths
 
-### Milestone 3: Polish
-- [ ] Progress bars during transfer
-- [ ] Multiple file / directory support
+### Milestone 3: Polish ← NEXT
 - [ ] Error handling and user feedback
 - [ ] Room expiration/cleanup
+- [ ] Session expiration/cleanup
+- [ ] Handle transfer interruption (peer disconnect mid-transfer)
 
 ---
 
@@ -161,3 +174,23 @@ None currently! 🎉
   - Removed unnecessary "Reconnect" button (user is still connected, just waiting)
   - Cleaned up unused `reconnect()` function
 - Peer refresh now works seamlessly for both parties!
+
+### 2026-02-02 (Session 5) - Milestone 2 Complete! 🎉
+- **Claude**: Wrote backend integration tests (TDD red phase)
+  - 4 test cases: single-chunk, multi-chunk (600KB), bidirectional, no-session rejection
+  - Tests defined the relay contract before implementation
+- **Human**: Implemented backend file relay
+  - Binary/text frame discrimination in handler.go
+  - `handleFraming` for file_start/file_end JSON relay
+  - `relayFile` for binary chunk forwarding
+  - `GetPeer(conn)` in session.go
+  - Added TransferStart/TransferEnd types to models
+- **Bug found & fixed**: `bytes.Buffer` was accumulating chunks across sends — switched to direct pass-through
+- **Claude**: Cleaned up backend code (removed unused `NewClient`, `RecvChunk`, commented relay.go code)
+- **Claude**: Implemented full frontend file transfer
+  - `ws.binaryType = "arraybuffer"` for binary message handling
+  - File sending: 256KB chunking with `file.slice()`, sequential queue
+  - File receiving: chunk accumulation, Blob reassembly, auto-download
+  - Drag-drop, file input, folder input wiring
+  - Progress bars with percentage updates
+- End-to-end file transfer working between two browser tabs!
