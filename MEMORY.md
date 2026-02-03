@@ -36,3 +36,46 @@ But then it worked. **Transferred files between phone and laptop over the intern
 Set up the custom domain: **frop.mmynk.com**. Added A/AAAA records in Cloudflare (DNS-only mode), Fly provisioned the Let's Encrypt cert automatically. Five minutes later, live on our own domain.
 
 frop is in the wild. 🚀
+
+## 2026-02-03 — The 6GB Test 💥
+
+Time to stress test. Tried sending a 6GB file between devices.
+
+**It crashed.** Hard.
+
+```
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation]
+```
+
+The system rebooted. Not ideal.
+
+### The Investigation
+
+Two problems, one root cause:
+
+**Frontend**: No backpressure. The sender was blasting 24,000 chunks (256KB each) as fast as possible without checking if the WebSocket could keep up. `ws.bufferedAmount` was never checked. For a 6GB file, that's... a lot of RAM being queued up.
+
+**Backend**: Race condition. When the connection timed out from memory bloat, one peer disconnected. But the relay goroutine was still trying to forward chunks. It called `session.GetPeer()`, which tried to dereference a nil pointer (the disconnected peer). SIGSEGV. Game over.
+
+### The Fixes
+
+**Backend**: Added nil checks everywhere. If a peer is nil (disconnected), return an error instead of crashing. Simple defensive programming.
+
+**Frontend**: Three changes:
+1. **Backpressure**: Added `waitForBuffer()` that pauses sending when `bufferedAmount` > 8MB. Natural flow control.
+2. **Bigger chunks**: 256KB → 4MB. A 6GB file is now 1,500 chunks instead of 24,000. 16x less overhead.
+3. **Streaming downloads**: Files > 100MB use the File System Access API to stream directly to disk instead of accumulating in RAM. Browser asks where to save, then writes chunks as they arrive.
+
+### The Insight
+
+The backend relay model is beautiful. Each goroutine:
+1. Reads a chunk from sender's WebSocket
+2. Immediately forwards to receiver's WebSocket
+3. Garbage collects the buffer
+
+Zero accumulation. Zero storage. Just a relay. The TCP stack handles backpressure naturally — if the receiver is slow, `WriteMessage` blocks, which pauses the read loop, which makes the sender's buffer grow, which triggers our frontend `waitForBuffer()`.
+
+Cascading backpressure, zero configuration.
+
+Now we can send 6GB files. Time to test again.

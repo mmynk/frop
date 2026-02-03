@@ -37,11 +37,24 @@ func NewSession(peers []*room.Peer) *Session {
 }
 
 func (s *Session) GetPeer(conn *websocket.Conn) (*room.Peer, bool) {
-	if s.PeerA.Is(conn) {
-		return s.PeerB, true
-	} else if s.PeerB.Is(conn) {
-		return s.PeerA, true
+	// Check if PeerA exists and matches the connection
+	if s.PeerA != nil && s.PeerA.Is(conn) {
+		// Return PeerB only if it's connected
+		if s.PeerB != nil {
+			return s.PeerB, true
+		}
+		return nil, false
 	}
+
+	// Check if PeerB exists and matches the connection
+	if s.PeerB != nil && s.PeerB.Is(conn) {
+		// Return PeerA only if it's connected
+		if s.PeerA != nil {
+			return s.PeerA, true
+		}
+		return nil, false
+	}
+
 	return nil, false
 }
 

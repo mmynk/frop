@@ -33,13 +33,17 @@ interface IncomingTransfer {
   received: number;
   chunks: Uint8Array[];
   element: HTMLElement;
+  // For streaming large files
+  writable?: FileSystemWritableFileStream;
 }
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const CHUNK_SIZE = 256 * 1024; // 256 KB
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB - efficient for all file sizes
+const MAX_BUFFER_SIZE = 8 * 1024 * 1024; // 8 MB - pause sending when buffer exceeds this (2x chunk size)
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100 MB - use streaming for files larger than this
 
 // =============================================================================
 // State
@@ -125,15 +129,15 @@ function connectWebSocket(): WebSocket {
     console.log("[WS] Connected");
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     if (event.data instanceof ArrayBuffer) {
-      handleBinaryChunk(event.data);
+      await handleBinaryChunk(event.data);
       return;
     }
 
     console.log("[WS] Message:", event.data);
     const msg: WsMessage = JSON.parse(event.data);
-    handleWsMessage(msg);
+    await handleWsMessage(msg);
   };
 
   ws.onerror = (error) => {
@@ -163,7 +167,7 @@ function sendMessage(msg: WsMessage): void {
   state.ws.send(JSON.stringify(msg));
 }
 
-function handleWsMessage(msg: WsMessage): void {
+async function handleWsMessage(msg: WsMessage): Promise<void> {
   switch (msg.type) {
     case "connected":
       console.log("[WS] Paired with peer! Token:", msg.sessionToken);
@@ -199,11 +203,11 @@ function handleWsMessage(msg: WsMessage): void {
       break;
 
     case "file_start":
-      handleFileStart(msg);
+      await handleFileStart(msg);
       break;
 
     case "file_end":
-      handleFileEnd();
+      await handleFileEnd();
       break;
 
     default:
@@ -281,6 +285,29 @@ function backToLanding(): void {
 // File Transfer - Sending
 // =============================================================================
 
+/**
+ * Wait for the WebSocket send buffer to drain below the threshold.
+ * This implements backpressure to prevent memory bloat on large transfers.
+ */
+function waitForBuffer(ws: WebSocket): Promise<void> {
+  return new Promise((resolve) => {
+    if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
+      resolve();
+      return;
+    }
+
+    // Poll every 10ms until buffer drains
+    const checkBuffer = () => {
+      if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
+        resolve();
+      } else {
+        setTimeout(checkBuffer, 10);
+      }
+    };
+    checkBuffer();
+  });
+}
+
 function queueFiles(files: FileList): void {
   sendQueue.push(...Array.from(files));
   if (!isSending) {
@@ -306,6 +333,9 @@ async function sendFile(file: File): Promise<void> {
 
   let offset = 0;
   while (offset < file.size) {
+    // Wait for buffer to drain before sending next chunk (backpressure)
+    await waitForBuffer(state.ws!);
+
     const end = Math.min(offset + CHUNK_SIZE, file.size);
     const slice = file.slice(offset, end);
     const buffer = await slice.arrayBuffer();
@@ -323,25 +353,58 @@ async function sendFile(file: File): Promise<void> {
 // File Transfer - Receiving
 // =============================================================================
 
-function handleFileStart(msg: WsMessage): void {
+async function handleFileStart(msg: WsMessage): Promise<void> {
   console.log(`[Transfer] Receiving: ${msg.name} (${msg.size} bytes)`);
   const element = addTransferItem(msg.name!, msg.size!, "receive");
+
+  // For large files, try to use streaming with File System Access API
+  let writable: FileSystemWritableFileStream | undefined;
+  if (
+    msg.size! > LARGE_FILE_THRESHOLD &&
+    "showSaveFilePicker" in window
+  ) {
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: msg.name,
+      });
+      writable = await handle.createWritable();
+      console.log(`[Transfer] Using streaming download for large file`);
+    } catch (err) {
+      console.warn(`[Transfer] Could not use streaming download:`, err);
+      // Fall back to memory accumulation
+    }
+  }
+
   incomingTransfer = {
     name: msg.name!,
     size: msg.size!,
     received: 0,
-    chunks: [],
+    chunks: writable ? [] : [], // Still need chunks array for non-streaming
     element,
+    writable,
   };
 }
 
-function handleBinaryChunk(data: ArrayBuffer): void {
+async function handleBinaryChunk(data: ArrayBuffer): Promise<void> {
   if (!incomingTransfer) {
     console.warn("[Transfer] Received binary chunk with no active transfer");
     return;
   }
 
-  incomingTransfer.chunks.push(new Uint8Array(data));
+  // If we have a writable stream, write directly to disk
+  if (incomingTransfer.writable) {
+    try {
+      await incomingTransfer.writable.write(data);
+    } catch (err) {
+      console.error(`[Transfer] Failed to write chunk to disk:`, err);
+      // Fall back to memory accumulation
+      incomingTransfer.chunks.push(new Uint8Array(data));
+    }
+  } else {
+    // Accumulate in memory for smaller files or when streaming not available
+    incomingTransfer.chunks.push(new Uint8Array(data));
+  }
+
   incomingTransfer.received += data.byteLength;
   updateProgress(
     incomingTransfer.element,
@@ -350,7 +413,7 @@ function handleBinaryChunk(data: ArrayBuffer): void {
   );
 }
 
-function handleFileEnd(): void {
+async function handleFileEnd(): Promise<void> {
   if (!incomingTransfer) {
     console.warn("[Transfer] Received file_end with no active transfer");
     return;
@@ -359,8 +422,21 @@ function handleFileEnd(): void {
   console.log(
     `[Transfer] Complete: ${incomingTransfer.name} (${incomingTransfer.received} bytes)`,
   );
-  const blob = new Blob(incomingTransfer.chunks);
-  downloadBlob(blob, incomingTransfer.name);
+
+  // If we were streaming to disk, close the stream
+  if (incomingTransfer.writable) {
+    try {
+      await incomingTransfer.writable.close();
+      console.log(`[Transfer] Streaming download complete`);
+    } catch (err) {
+      console.error(`[Transfer] Failed to close writable stream:`, err);
+    }
+  } else {
+    // Traditional blob download for smaller files
+    const blob = new Blob(incomingTransfer.chunks);
+    downloadBlob(blob, incomingTransfer.name);
+  }
+
   markComplete(incomingTransfer.element);
   incomingTransfer = null;
 }

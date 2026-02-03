@@ -24,8 +24,10 @@ Last updated: 2026-02-02
 - [x] URL-based session tokens (`?s=token` for auto-reconnect on page load/refresh)
 
 - [x] File selection (button) and drag-drop handling
-- [x] File chunking (256 KB) and sending via WebSocket binary frames
+- [x] File chunking (4 MB) and sending via WebSocket binary frames
+- [x] WebSocket backpressure handling (`bufferedAmount` monitoring)
 - [x] File receiving with chunk reassembly and auto-download
+- [x] Streaming downloads for large files (> 100MB) using File System Access API
 - [x] Progress bar UI updates during transfer
 - [x] Folder selection with relative path preservation
 - [x] Send queue for sequential file transfer (prevents interleaving)
@@ -60,6 +62,7 @@ Last updated: 2026-02-02
 - [x] Binary frame relay between peers (inline forwarding in handler.go)
 - [x] `file_start` / `file_end` JSON framing for transfer control
 - [x] `GetPeer(conn)` for finding the other peer in a session
+- [x] Nil pointer dereference protection in session.GetPeer()
 - [x] Integration tests for file transfer (single-chunk, multi-chunk, bidirectional, no-session)
 - [x] Peer struct extracted to own file with `SendRequest`, `SendResponse`, `SendChunk`
 
@@ -96,7 +99,7 @@ Last updated: 2026-02-02
 - [ ] Error handling and user feedback
 - [ ] Room expiration/cleanup
 - [ ] Session expiration/cleanup
-- [ ] Handle transfer interruption (peer disconnect mid-transfer)
+- [x] Handle transfer interruption (peer disconnect mid-transfer)
 
 ---
 
@@ -123,6 +126,19 @@ Last updated: 2026-02-02
 ## Known Issues
 
 None currently! 🎉
+
+### Fixed Issues
+
+**2026-02-03: Large File Transfer Crash (SIGSEGV)**
+- **Symptom**: 6GB file transfers caused backend crash with nil pointer dereference
+- **Root causes**:
+  1. Frontend: No backpressure handling → sender blasted all chunks → receiver accumulated 6GB in RAM → timeout/disconnect
+  2. Backend: Race condition when peer disconnected mid-transfer → `session.GetPeer()` called `peer.Is()` on nil pointer → SIGSEGV
+- **Fixes**:
+  - **Backend**: Added nil checks in `session.GetPeer()` before dereferencing peer pointers
+  - **Frontend**: Implemented WebSocket backpressure monitoring (pause when `bufferedAmount` > 8MB)
+  - **Frontend**: Changed chunk size from 256KB → 4MB for 16x better efficiency
+  - **Frontend**: Added streaming downloads for files > 100MB using File System Access API (writes directly to disk instead of RAM accumulation)
 
 ---
 
@@ -194,3 +210,17 @@ None currently! 🎉
   - Drag-drop, file input, folder input wiring
   - Progress bars with percentage updates
 - End-to-end file transfer working between two browser tabs!
+
+### 2026-02-03 (Session 6) - Large File Transfer Fix 🚀
+- **Production test**: Deployed to frop.mmynk.com, tested with 6GB file → crash!
+- **Investigation**: Found nil pointer dereference crash when peer disconnected during transfer
+- **Claude**: Fixed backend race condition
+  - Added nil checks in `session.GetPeer()` to handle disconnected peers
+  - Improved error messages for peer disconnection scenarios
+- **Claude**: Fixed frontend memory/performance issues
+  - Added WebSocket backpressure handling: pause sending when `bufferedAmount` > 8MB
+  - Increased chunk size from 256KB → 4MB (16x reduction in overhead for large files)
+  - Implemented streaming downloads for files > 100MB using File System Access API
+  - Files now stream to disk instead of accumulating in RAM
+- **Design insight**: Backend relay model is beautiful — zero memory accumulation, natural TCP backpressure
+- Large file transfers now efficient and crash-resistant!

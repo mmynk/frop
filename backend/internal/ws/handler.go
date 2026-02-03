@@ -120,7 +120,7 @@ func (c *Client) handleFraming(req *models.WsRequest) error {
 	}
 	peer, exists := s.GetPeer(c.conn)
 	if !exists {
-		return fmt.Errorf("No peer found")
+		return fmt.Errorf("Other peer is disconnected, cannot send framing message")
 	}
 	return peer.SendRequest(req)
 }
@@ -132,7 +132,7 @@ func (c *Client) relayFile(chunk []byte) error {
 	}
 	peer, exists := s.GetPeer(c.conn)
 	if !exists {
-		return fmt.Errorf("No peer found")
+		return fmt.Errorf("Other peer is disconnected, cannot relay chunk")
 	}
 
 	slog.Debug("Sending chunk to peer", "size", len(chunk))
