@@ -13,10 +13,33 @@ interface AppState {
 
 // WebSocket message types (matches backend models/ws.go)
 interface WsMessage {
-  type: "join" | "reconnect" | "connected" | "failed" | "peer_disconnected";
+  type:
+    | "join"
+    | "reconnect"
+    | "connected"
+    | "failed"
+    | "peer_disconnected"
+    | "file_start"
+    | "file_end";
   code?: string;
   sessionToken?: string;
+  name?: string;
+  size?: number;
 }
+
+interface IncomingTransfer {
+  name: string;
+  size: number;
+  received: number;
+  chunks: Uint8Array[];
+  element: HTMLElement;
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const CHUNK_SIZE = 256 * 1024; // 256 KB
 
 // =============================================================================
 // State
@@ -28,6 +51,11 @@ const state: AppState = {
   sessionToken: null,
   ws: null,
 };
+
+// Transfer state
+let sendQueue: File[] = [];
+let isSending = false;
+let incomingTransfer: IncomingTransfer | null = null;
 
 // =============================================================================
 // DOM Elements
@@ -91,12 +119,18 @@ function getWsUrl(): string {
 
 function connectWebSocket(): WebSocket {
   const ws = new WebSocket(getWsUrl());
+  ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
     console.log("[WS] Connected");
   };
 
   ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      handleBinaryChunk(event.data);
+      return;
+    }
+
     console.log("[WS] Message:", event.data);
     const msg: WsMessage = JSON.parse(event.data);
     handleWsMessage(msg);
@@ -138,8 +172,8 @@ function handleWsMessage(msg: WsMessage): void {
       // Update browser URL with session token for easy reconnection
       if (state.sessionToken) {
         const newUrl = new URL(window.location.href);
-        newUrl.searchParams.set('s', state.sessionToken);
-        window.history.replaceState({}, '', newUrl.toString());
+        newUrl.searchParams.set("s", state.sessionToken);
+        window.history.replaceState({}, "", newUrl.toString());
         console.log("[URL] Updated with session token");
       }
 
@@ -152,19 +186,24 @@ function handleWsMessage(msg: WsMessage): void {
       // Clear session token from state and URL
       state.sessionToken = null;
       const urlWithoutToken = new URL(window.location.href);
-      urlWithoutToken.searchParams.delete('s');
-      window.history.replaceState({}, '', urlWithoutToken.toString());
+      urlWithoutToken.searchParams.delete("s");
+      window.history.replaceState({}, "", urlWithoutToken.toString());
 
-      // Show landing view and log error
       console.log("[Room] Session expired or invalid - returning to landing");
       showView("landing");
-
-      // TODO: Show error notification to user (e.g., "Session expired. Please create or join a new room.")
       break;
 
     case "peer_disconnected":
       console.log("[WS] Peer disconnected");
       showView("disconnected");
+      break;
+
+    case "file_start":
+      handleFileStart(msg);
+      break;
+
+    case "file_end":
+      handleFileEnd();
       break;
 
     default:
@@ -200,14 +239,12 @@ async function createRoom(): Promise<void> {
     };
   } catch (error) {
     console.error("[Room] Failed to create:", error);
-    // TODO: Show error to user
   }
 }
 
 function joinRoom(code: string): void {
   if (!code || code.length !== 6) {
     console.error("[Room] Invalid code:", code);
-    // TODO: Show validation error
     return;
   }
 
@@ -241,6 +278,157 @@ function backToLanding(): void {
 }
 
 // =============================================================================
+// File Transfer - Sending
+// =============================================================================
+
+function queueFiles(files: FileList): void {
+  sendQueue.push(...Array.from(files));
+  if (!isSending) {
+    drainSendQueue();
+  }
+}
+
+async function drainSendQueue(): Promise<void> {
+  isSending = true;
+  while (sendQueue.length > 0) {
+    const file = sendQueue.shift()!;
+    await sendFile(file);
+  }
+  isSending = false;
+}
+
+async function sendFile(file: File): Promise<void> {
+  const name = file.webkitRelativePath || file.name;
+  console.log(`[Transfer] Sending: ${name} (${file.size} bytes)`);
+
+  sendMessage({ type: "file_start", name, size: file.size });
+  const element = addTransferItem(name, file.size, "send");
+
+  let offset = 0;
+  while (offset < file.size) {
+    const end = Math.min(offset + CHUNK_SIZE, file.size);
+    const slice = file.slice(offset, end);
+    const buffer = await slice.arrayBuffer();
+    state.ws!.send(buffer);
+    offset = end;
+    updateProgress(element, offset, file.size);
+  }
+
+  sendMessage({ type: "file_end", name });
+  markComplete(element);
+  console.log(`[Transfer] Sent: ${name}`);
+}
+
+// =============================================================================
+// File Transfer - Receiving
+// =============================================================================
+
+function handleFileStart(msg: WsMessage): void {
+  console.log(`[Transfer] Receiving: ${msg.name} (${msg.size} bytes)`);
+  const element = addTransferItem(msg.name!, msg.size!, "receive");
+  incomingTransfer = {
+    name: msg.name!,
+    size: msg.size!,
+    received: 0,
+    chunks: [],
+    element,
+  };
+}
+
+function handleBinaryChunk(data: ArrayBuffer): void {
+  if (!incomingTransfer) {
+    console.warn("[Transfer] Received binary chunk with no active transfer");
+    return;
+  }
+
+  incomingTransfer.chunks.push(new Uint8Array(data));
+  incomingTransfer.received += data.byteLength;
+  updateProgress(
+    incomingTransfer.element,
+    incomingTransfer.received,
+    incomingTransfer.size,
+  );
+}
+
+function handleFileEnd(): void {
+  if (!incomingTransfer) {
+    console.warn("[Transfer] Received file_end with no active transfer");
+    return;
+  }
+
+  console.log(
+    `[Transfer] Complete: ${incomingTransfer.name} (${incomingTransfer.received} bytes)`,
+  );
+  const blob = new Blob(incomingTransfer.chunks);
+  downloadBlob(blob, incomingTransfer.name);
+  markComplete(incomingTransfer.element);
+  incomingTransfer = null;
+}
+
+function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// Transfer UI
+// =============================================================================
+
+function addTransferItem(
+  name: string,
+  size: number,
+  direction: "send" | "receive",
+): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "transfer-item";
+  const arrow = direction === "send" ? "↑" : "↓";
+  item.innerHTML = `
+    <div class="name">${arrow} ${escapeHtml(name)}</div>
+    <div class="meta">
+      <span>${formatSize(size)}</span>
+      <span class="percent">0%</span>
+    </div>
+    <div class="progress-bar"><div class="fill" style="width: 0%"></div></div>
+  `;
+  elements.transferList.appendChild(item);
+  return item;
+}
+
+function updateProgress(
+  element: HTMLElement,
+  received: number,
+  total: number,
+): void {
+  const pct = Math.min(100, Math.round((received / total) * 100));
+  element.querySelector<HTMLElement>(".fill")!.style.width = `${pct}%`;
+  element.querySelector(".percent")!.textContent = `${pct}%`;
+}
+
+function markComplete(element: HTMLElement): void {
+  element.classList.add("complete");
+  element.querySelector<HTMLElement>(".fill")!.style.width = "100%";
+  element.querySelector(".percent")!.textContent = "Done";
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// =============================================================================
 // Event Listeners
 // =============================================================================
 
@@ -269,13 +457,45 @@ function setupEventListeners(): void {
   // Disconnected view
   elements.backToLandingBtn.addEventListener("click", backToLanding);
 
-  // Connected view - file handling (placeholder for Milestone 2)
+  // Connected view - file inputs
   elements.selectFilesBtn.addEventListener("click", () => {
     elements.fileInput.click();
   });
 
   elements.selectFolderBtn.addEventListener("click", () => {
     elements.folderInput.click();
+  });
+
+  elements.fileInput.addEventListener("change", () => {
+    if (elements.fileInput.files?.length) {
+      queueFiles(elements.fileInput.files);
+      elements.fileInput.value = "";
+    }
+  });
+
+  elements.folderInput.addEventListener("change", () => {
+    if (elements.folderInput.files?.length) {
+      queueFiles(elements.folderInput.files);
+      elements.folderInput.value = "";
+    }
+  });
+
+  // Drag and drop
+  elements.dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    elements.dropzone.classList.add("dragover");
+  });
+
+  elements.dropzone.addEventListener("dragleave", () => {
+    elements.dropzone.classList.remove("dragover");
+  });
+
+  elements.dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    elements.dropzone.classList.remove("dragover");
+    if (e.dataTransfer?.files.length) {
+      queueFiles(e.dataTransfer.files);
+    }
   });
 }
 
@@ -289,7 +509,7 @@ function init(): void {
 
   // Check for session token in URL parameter
   const urlParams = new URLSearchParams(window.location.search);
-  const sessionToken = urlParams.get('s');
+  const sessionToken = urlParams.get("s");
 
   if (sessionToken && sessionToken.trim()) {
     // Auto-reconnect with session token from URL
