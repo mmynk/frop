@@ -110,3 +110,9 @@ For new backend features, Claude writes integration tests first that define the 
 - Catches regressions early
 
 Run tests with: `cd backend && go test -v ./...`
+
+## Documentation
+
+**PROGRESS.md** (`docs/PROGRESS.md`): Technical tracking - what's completed, what's next, known issues. Update this when features are implemented or bugs are discovered.
+
+**MEMORY.md** (root): Narrative record of the project journey - key moments, decisions, and the story behind the code. Update this when significant milestones happen or important context should be preserved for future sessions. Written collaboratively so both human and AI understand the project's history.

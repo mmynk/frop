@@ -4,17 +4,18 @@
 
 Share files instantly: one person creates a room, the other joins with a 6-character code. No accounts, no file storage - files stream directly between browsers through the server.
 
+**🚀 Live at:** [frop.mmynk.com](https://frop.mmynk.com)
+
 ## Current Status
 
-🚧 **Early development** - Room pairing works, file transfer coming soon.
+✅ **v1 Complete** - File transfer working!
 
 **What works:**
 - Create/join rooms with 6-character codes
 - Persistent sessions (bookmark the URL to rejoin)
 - Auto-reconnect on page refresh
-
-**What's coming:**
-- File transfer (drag-drop, streaming, download)
+- File transfer (drag-drop, streaming, real-time progress)
+- Folder support with preserved directory structure
 
 ## Tech Stack
 
@@ -50,7 +51,7 @@ bun run build      # Build once
 1. **Person A:** Open the app → click "Create Room" → share the 6-character code
 2. **Person B:** Open the app → enter the code → click "Join"
 3. **Both:** Once connected, your browser URL updates with a session token you can bookmark
-4. **File transfer:** Coming soon!
+4. **Send files:** Drag files/folders onto the page, or click "Send Files" → they stream to your peer in real-time!
 
 ## API (for developers)
 
