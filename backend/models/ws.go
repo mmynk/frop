@@ -8,12 +8,19 @@ const (
 	Connected        Type = "connected"
 	Failed           Type = "failed"
 	PeerDisconnected Type = "peer_disconnected"
+	TransferStart    Type = "file_start"
+	TransferEnd      Type = "file_end"
 )
 
 type WsRequest struct {
 	Type         Type   `json:"type"`
 	Code         string `json:"code,omitempty"`         // for "join"
 	SessionToken string `json:"sessionToken,omitempty"` // for "reconnect"
+
+	// transfer
+
+	Name string `json:"name,omitempty"`
+	Size int    `json:"size,omitempty"`
 }
 
 type WsResponse struct {

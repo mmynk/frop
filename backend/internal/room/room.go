@@ -2,7 +2,6 @@ package room
 
 import (
 	"fmt"
-	"frop/models"
 	"log/slog"
 	"math/rand/v2"
 
@@ -10,18 +9,6 @@ import (
 )
 
 var alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-type Peer struct {
-	Conn *websocket.Conn
-}
-
-func (p *Peer) Is(conn *websocket.Conn) bool {
-	return p.Conn == conn
-}
-
-func (p *Peer) SendMessage(res *models.WsResponse) {
-	p.Conn.WriteJSON(res)
-}
 
 type Room struct {
 	Peers []*Peer

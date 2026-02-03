@@ -36,10 +36,19 @@ func NewSession(peers []*room.Peer) *Session {
 	return s
 }
 
+func (s *Session) GetPeer(conn *websocket.Conn) (*room.Peer, bool) {
+	if s.PeerA.Is(conn) {
+		return s.PeerB, true
+	} else if s.PeerB.Is(conn) {
+		return s.PeerA, true
+	}
+	return nil, false
+}
+
 func (s *Session) Notify() {
 	res := connectedResponse(s.Token)
-	s.PeerA.SendMessage(res)
-	s.PeerB.SendMessage(res)
+	s.PeerA.SendResponse(res)
+	s.PeerB.SendResponse(res)
 }
 
 func (s *Session) Reconnect(peer *room.Peer) error {
@@ -61,13 +70,13 @@ func (s *Session) Disconnect(conn *websocket.Conn) {
 	if s.PeerA != nil && s.PeerA.Is(conn) {
 		s.PeerA = nil
 		if s.PeerB != nil {
-			s.PeerB.SendMessage(&models.WsResponse{Type: models.PeerDisconnected})
+			s.PeerB.SendResponse(&models.WsResponse{Type: models.PeerDisconnected})
 		}
 		slog.Info("PeerA disconnected from the session")
 	} else if s.PeerB != nil && s.PeerB.Is(conn) {
 		s.PeerB = nil
 		if s.PeerA != nil {
-			s.PeerA.SendMessage(&models.WsResponse{Type: models.PeerDisconnected})
+			s.PeerA.SendResponse(&models.WsResponse{Type: models.PeerDisconnected})
 		}
 		slog.Info("PeerB disconnected from the session")
 	}

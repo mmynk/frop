@@ -20,10 +20,6 @@ type Client struct {
 	conn *websocket.Conn
 }
 
-func NewClient() *Client {
-	return new(Client)
-}
-
 func ServeHttp(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -36,6 +32,8 @@ func ServeHttp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Client) handle() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+
 	defer func() {
 		c.conn.Close()
 		if s, exists := session.LookupSessionForConn(c.conn); exists {
@@ -44,11 +42,16 @@ func (c *Client) handle() {
 	}()
 
 	for {
-		_, msg, err := c.conn.ReadMessage()
+		msgType, msg, err := c.conn.ReadMessage()
 		if err != nil {
 			slog.Error("Failed to read msg", "error", err)
 			c.sendFailureResponse()
 			return
+		}
+
+		if msgType == websocket.BinaryMessage {
+			c.relayFile(msg)
+			continue
 		}
 
 		slog.Info("Read message", "message", string(msg))
@@ -76,6 +79,10 @@ func (c *Client) processRequest(req *models.WsRequest) error {
 		return c.handleJoin(req)
 	case models.Reconnect:
 		return c.handleReconnect(req)
+	case models.TransferStart:
+		return c.handleFraming(req)
+	case models.TransferEnd:
+		return c.handleFraming(req)
 	}
 
 	return fmt.Errorf("Request type did not match any operation %s", req.Type)
@@ -86,7 +93,6 @@ func (c *Client) handleJoin(req *models.WsRequest) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("Successfully joined room", "code", req.Code)
 
 	if len(r.Peers) == 2 {
 		// both peers have joined, create a new session
@@ -105,6 +111,32 @@ func (c *Client) handleReconnect(req *models.WsRequest) error {
 	}
 	peer := &room.Peer{Conn: c.conn}
 	return s.Reconnect(peer)
+}
+
+func (c *Client) handleFraming(req *models.WsRequest) error {
+	s, exists := session.LookupSessionForConn(c.conn)
+	if !exists {
+		return fmt.Errorf("No session found")
+	}
+	peer, exists := s.GetPeer(c.conn)
+	if !exists {
+		return fmt.Errorf("No peer found")
+	}
+	return peer.SendRequest(req)
+}
+
+func (c *Client) relayFile(chunk []byte) error {
+	s, exists := session.LookupSessionForConn(c.conn)
+	if !exists {
+		return fmt.Errorf("No session found")
+	}
+	peer, exists := s.GetPeer(c.conn)
+	if !exists {
+		return fmt.Errorf("No peer found")
+	}
+
+	slog.Debug("Sending chunk to peer", "size", len(chunk))
+	return peer.SendChunk(chunk)
 }
 
 func (c *Client) sendFailureResponse() {
