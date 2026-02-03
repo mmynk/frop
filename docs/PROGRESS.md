@@ -56,7 +56,6 @@ Last updated: 2026-02-02
 ### Not Started
 - [ ] `GET /api/room/:code` endpoint
 - [ ] Binary frame relay between peers
-- [ ] Peer disconnect detection
 - [ ] Room expiration/cleanup
 
 ---
@@ -110,60 +109,7 @@ Last updated: 2026-02-02
 
 ## Known Issues
 
-### 🐛 Peer Refresh Breaks Session for Both Peers
-**Status:** Not fixed yet
-
-**Problem:** When one peer refreshes their browser, both peers lose the ability to reconnect together:
-
-1. PeerA and PeerB connected via session token
-2. PeerA refreshes → PeerA's WebSocket closes
-3. Backend notifies PeerB with "peer_disconnected" → PeerB sees disconnected view
-4. PeerA auto-reconnects with session token (URL `?s=...`)
-5. **PeerB tries to reconnect** → PeerA gets disconnected
-6. No way for both to get back into the same session
-
-**Root cause:** Backend session/room state management doesn't properly handle:
-- One peer temporarily disconnecting (refresh) vs permanently leaving
-- Both peers trying to reconnect to the same session
-- Keeping session alive when peer count drops to 1
-
-**Technical details from logs:**
-```
-09:06:00 Successfully joined room (peer reconnects)
-09:06:02 websocket: close 1001 (going away) [both peers close]
-09:06:02 First reconnect with session token succeeds
-09:06:51 Second reconnect fails: "Both peers already connected"
-09:07:31 Another reconnect fails: "Both peers already connected"
-```
-
-The backend tracks session state but doesn't properly handle stale WebSocket connections. When peers try to reconnect, it rejects them thinking both are already connected, even though the WebSocket connections are actually closed.
-
-**Impact:** Users can't reliably refresh without breaking the connection for their peer.
-
-**Code analysis (session.go):**
-The defer in `handler.go:39-44` DOES fire and calls `s.Disconnect()` which:
-- Removes connection from `sessionsByConn` map
-- Sets `PeerA = nil` or `PeerB = nil`
-- Notifies other peer with "peer_disconnected"
-
-The `Reconnect()` function checks:
-- If `PeerA == nil`, assign there
-- Else if `PeerB == nil`, assign there
-- Else return "Both peers already connected"
-
-**Mystery:** When both peers close and reconnect, the second reconnect fails with "Both peers already connected", meaning both slots are somehow non-nil. Possible causes:
-- Race condition: first reconnect happens before both defers complete?
-- First reconnect assigns to wrong slot or both slots?
-- Disconnect() not fully executing in some cases?
-
-**Future work needed:**
-- [ ] Backend: Debug why both peer slots are non-nil after both disconnect
-- [ ] Backend: Consider locking/mutex in Session to prevent race conditions
-- [ ] Backend: Add more detailed logging in Reconnect/Disconnect to trace state
-- [ ] Backend: Maybe assign peers by identity (first to connect = PeerA always)?
-- [ ] Backend: Add grace period before sending "peer_disconnected" (5-10 sec buffer)
-- [ ] Frontend: Show "Peer temporarily disconnected" vs "Peer left" states
-- [ ] Consider: Add "ping/pong" heartbeat to detect dead connections
+None currently! 🎉
 
 ---
 
@@ -205,3 +151,13 @@ The `Reconnect()` function checks:
 - **Documented**: Known limitations (sessions never expire, room codes can be reused)
 - Created README.md with project overview and setup instructions
 - Next: Milestone 2 - File Transfer!
+
+### 2026-02-02 (Session 4) - Fixed Peer Refresh Bug 🐛→✅
+- **Bug**: When PeerA refreshed, PeerB's UI showed "Connection Lost" but wasn't notified when PeerA reconnected
+- **Root cause**: `Reconnect()` only notified the reconnecting peer, not the waiting peer
+- **Human**: Fixed `session.go` - call `s.Notify()` instead of single peer notification
+- **Claude**: Improved disconnect UX
+  - Changed "Connection lost" → "Waiting for peer..." (less alarming for temporary disconnects)
+  - Removed unnecessary "Reconnect" button (user is still connected, just waiting)
+  - Cleaned up unused `reconnect()` function
+- Peer refresh now works seamlessly for both parties!

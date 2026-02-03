@@ -58,7 +58,6 @@ const elements = {
   transferList: document.getElementById("transferList")!,
 
   // Disconnected
-  reconnectBtn: document.getElementById("reconnect")!,
   backToLandingBtn: document.getElementById("backToLanding")!,
 };
 
@@ -232,20 +231,6 @@ function cancelRoom(): void {
   showView("landing");
 }
 
-function reconnect(): void {
-  if (!state.sessionToken) {
-    console.error("[Room] No session token for reconnect");
-    showView("landing");
-    return;
-  }
-
-  console.log("[Room] Reconnecting with token...");
-  const ws = connectWebSocket();
-  ws.onopen = () => {
-    sendMessage({ type: "reconnect", sessionToken: state.sessionToken! });
-  };
-}
-
 function backToLanding(): void {
   state.roomCode = null;
   state.sessionToken = null;
@@ -282,7 +267,6 @@ function setupEventListeners(): void {
   elements.cancelRoomBtn.addEventListener("click", cancelRoom);
 
   // Disconnected view
-  elements.reconnectBtn.addEventListener("click", reconnect);
   elements.backToLandingBtn.addEventListener("click", backToLanding);
 
   // Connected view - file handling (placeholder for Milestone 2)

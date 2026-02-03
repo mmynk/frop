@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"frop/internal/room"
 	"frop/models"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,7 +51,7 @@ func (s *Session) Reconnect(peer *room.Peer) error {
 		return fmt.Errorf("Both peers already connected")
 	}
 	sessionStore.sessionsByConn[peer.Conn] = s
-	peer.SendMessage(connectedResponse(s.Token))
+	s.Notify()
 
 	return nil
 }
@@ -62,11 +63,13 @@ func (s *Session) Disconnect(conn *websocket.Conn) {
 		if s.PeerB != nil {
 			s.PeerB.SendMessage(&models.WsResponse{Type: models.PeerDisconnected})
 		}
+		slog.Info("PeerA disconnected from the session")
 	} else if s.PeerB != nil && s.PeerB.Is(conn) {
 		s.PeerB = nil
 		if s.PeerA != nil {
 			s.PeerA.SendMessage(&models.WsResponse{Type: models.PeerDisconnected})
 		}
+		slog.Info("PeerB disconnected from the session")
 	}
 }
 
