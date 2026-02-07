@@ -9,3 +9,6 @@ frontend/dist/
 
 # Claude Code local settings
 .claude/
+
+# Scratch/research files
+scratch/

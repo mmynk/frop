@@ -101,3 +101,9 @@ Extracted `GetRemotePeer(conn)` into the session package. Now both handler and r
 Started with a separate `wserrors` package, but that felt wrong. The errors are really about session state, not websocket errors. Moving them to the session package was cleaner — no new package, no awkward naming.
 
 Considered splitting `handler.go` into `handler.go` + `processor.go`, but at 150 lines it's not worth it yet. Good reminder: don't split files preemptively. Wait until there's actual pain.
+
+## 2026-02-07 (evening) — Favicon & Deployment Research
+
+Added a favicon — went with the "droplets" icon from Lucide (MIT licensed). Fits the name (frop ~ drop) and looks clean at small sizes. Blue outline, SVG format. Simple.
+
+Also researched deployment alternatives since Fly.io killed their free tier. Turns out Cloudflare has a new Containers beta that runs Docker containers on their edge. Could keep the Go backend as-is, no rewrite needed. WebSockets supported. $5/mo base + usage-based pricing. Parked the research in `scratch/cloudflare-deployment-research.md` for when we're ready to migrate.
