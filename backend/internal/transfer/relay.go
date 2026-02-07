@@ -2,7 +2,6 @@ package transfer
 
 import (
 	"context"
-	"fmt"
 	"frop/internal/session"
 	"log/slog"
 
@@ -29,15 +28,10 @@ func (r *Relay) RelayFile(ctx context.Context, chunk []byte) error {
 }
 
 func (r *Relay) relay(chunk []byte) error {
-	s, exists := session.LookupSessionForConn(r.conn)
-	if !exists {
-		return fmt.Errorf("No session found")
+	peer, err := session.GetRemotePeer(r.conn)
+	if err != nil {
+		return err
 	}
-	peer, exists := s.GetPeer(r.conn)
-	if !exists {
-		return fmt.Errorf("Other peer is disconnected, cannot relay chunk")
-	}
-
 	slog.Debug("Sending chunk to peer", "size", len(chunk))
 	return peer.SendChunk(chunk)
 }

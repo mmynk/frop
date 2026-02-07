@@ -1,6 +1,16 @@
 package session
 
-import "github.com/gorilla/websocket"
+import (
+	"errors"
+	"frop/internal/room"
+
+	"github.com/gorilla/websocket"
+)
+
+var (
+	ErrSessionNotFound  = errors.New("session not found")
+	ErrPeerDisconnected = errors.New("peer disconnected")
+)
 
 var sessionStore = newStore()
 
@@ -24,6 +34,18 @@ func GetSession(token string) (*Session, bool) {
 func LookupSessionForConn(conn *websocket.Conn) (*Session, bool) {
 	s, exists := sessionStore.sessionsByConn[conn]
 	return s, exists
+}
+
+func GetRemotePeer(conn *websocket.Conn) (*room.Peer, error) {
+	s, exists := LookupSessionForConn(conn)
+	if !exists {
+		return nil, ErrSessionNotFound
+	}
+	peer, exists := s.GetPeer(conn)
+	if !exists {
+		return nil, ErrPeerDisconnected
+	}
+	return peer, nil
 }
 
 // Reset deletes the store (used for testing)

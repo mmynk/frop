@@ -124,44 +124,27 @@ func (c *Client) handleReconnect(req *models.WsRequest) error {
 }
 
 func (c *Client) handleFraming(req *models.WsRequest) error {
-	s, exists := session.LookupSessionForConn(c.conn)
-	if !exists {
-		return fmt.Errorf("No session found")
-	}
-	peer, exists := s.GetPeer(c.conn)
-	if !exists {
-		return fmt.Errorf("Other peer is disconnected, cannot send framing message")
-	}
-	slog.Debug("Forwarding framing message to peer", "type", req.Type, "name", req.Name)
-	return peer.SendRequest(req)
+	return c.forwardToPeer(req)
 }
 
 func (c *Client) handleCancel(cancel context.CancelFunc, req *models.WsRequest) error {
 	cancel()
-	return c.handleFraming(req)
+	return c.forwardToPeer(req)
 }
 
 func (c *Client) handleClipboard(req *models.WsRequest) error {
-	s, exists := session.LookupSessionForConn(c.conn)
-	if !exists {
-		return fmt.Errorf("No session found")
-	}
-	peer, exists := s.GetPeer(c.conn)
-	if !exists {
-		return fmt.Errorf("Other peer is disconnected, cannot send framing message")
-	}
-	slog.Debug("Forwarding clipboard to peer", "type", req.Type, "name", req.Name)
-	return peer.SendRequest(req)
+	return c.forwardToPeer(req)
 }
 
 func (c *Client) sendFailureResponse() {
 	c.conn.WriteJSON(&models.WsResponse{Type: models.Failed})
 }
 
-func (c *Client) Close() error {
-	if c.conn == nil {
-		slog.Info("Connection already closed")
-		return nil
+func (c *Client) forwardToPeer(req *models.WsRequest) error {
+	peer, err := session.GetRemotePeer(c.conn)
+	if err != nil {
+		return err
 	}
-	return c.conn.Close()
+	slog.Debug("Forwarding message to peer", "type", req.Type)
+	return peer.SendRequest(req)
 }

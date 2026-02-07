@@ -91,3 +91,13 @@ Two features in one session.
 Both features followed the TDD approach: Claude writes tests defining the message contract, human implements the backend handler (usually just one line in the switch statement pointing to `handleFraming`), then Claude implements the frontend UI.
 
 The pattern is becoming second nature now. New feature? Add the message type to models, write the tests, implement the relay, build the UI. The WebSocket protocol is flexible enough that most features are just "relay this JSON to the peer."
+
+## 2026-02-07 — Backend Cleanup
+
+Refactoring day. The `handler.go` file had grown repetitive — `handleFraming`, `handleClipboard`, and the relay all had the same "lookup session, get peer, forward message" pattern duplicated.
+
+Extracted `GetRemotePeer(conn)` into the session package. Now both handler and relay just call one function. Added sentinel errors (`ErrSessionNotFound`, `ErrPeerDisconnected`) next to it in `store.go` — keeping the errors with the lookup logic they describe.
+
+Started with a separate `wserrors` package, but that felt wrong. The errors are really about session state, not websocket errors. Moving them to the session package was cleaner — no new package, no awkward naming.
+
+Considered splitting `handler.go` into `handler.go` + `processor.go`, but at 150 lines it's not worth it yet. Good reminder: don't split files preemptively. Wait until there's actual pain.
