@@ -307,3 +307,85 @@ header h1 {
     width: 100%;
     margin-bottom: 0.5rem;
 }
+
+/* Clipboard */
+.clipboard-btn {
+    background: var(--surface);
+    border-color: var(--border);
+}
+
+.clipboard-list {
+    margin-top: 1rem;
+}
+
+.clipboard-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    animation: fadeIn 0.2s ease;
+}
+
+.clipboard-item.received {
+    border-color: var(--primary);
+    border-left-width: 3px;
+}
+
+.clipboard-item.sent {
+    opacity: 0.7;
+}
+
+.clipboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.clipboard-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.clipboard-content {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 4.5em;
+    overflow: hidden;
+    line-height: 1.5;
+}
+
+.copy-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.copy-btn:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.copy-btn:disabled {
+    background: var(--success);
+    cursor: default;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

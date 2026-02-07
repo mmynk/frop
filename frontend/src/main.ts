@@ -21,12 +21,14 @@ interface WsMessage {
     | "peer_disconnected"
     | "file_start"
     | "file_end"
-    | "file_cancel";
+    | "file_cancel"
+    | "clipboard";
   code?: string;
   sessionToken?: string;
   name?: string;
   size?: number;
   reason?: string;
+  content?: string; // for "clipboard"
 }
 
 interface IncomingTransfer {
@@ -46,6 +48,7 @@ interface IncomingTransfer {
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB - efficient for all file sizes
 const MAX_BUFFER_SIZE = 8 * 1024 * 1024; // 8 MB - pause sending when buffer exceeds this (2x chunk size)
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100 MB - use streaming for files larger than this
+const MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1 MB - max clipboard text size
 
 // =============================================================================
 // State
@@ -93,7 +96,9 @@ const elements = {
   folderInput: document.getElementById("folderInput") as HTMLInputElement,
   selectFilesBtn: document.getElementById("selectFiles")!,
   selectFolderBtn: document.getElementById("selectFolder")!,
+  sendClipboardBtn: document.getElementById("sendClipboard")!,
   transferList: document.getElementById("transferList")!,
+  clipboardList: document.getElementById("clipboardList")!,
 
   // Disconnected
   backToLandingBtn: document.getElementById("backToLanding")!,
@@ -218,6 +223,10 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
 
     case "file_cancel":
       await handleFileCancel(msg);
+      break;
+
+    case "clipboard":
+      handleClipboardReceived(msg);
       break;
 
     default:
@@ -539,6 +548,98 @@ function cancelIncomingTransfer(): void {
 }
 
 // =============================================================================
+// Clipboard Sharing
+// =============================================================================
+
+async function sendClipboard(): Promise<void> {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) {
+      console.log("[Clipboard] Nothing to send (empty)");
+      return;
+    }
+
+    if (text.length > MAX_CLIPBOARD_SIZE) {
+      console.warn(`[Clipboard] Too large: ${text.length} bytes (max ${MAX_CLIPBOARD_SIZE})`);
+      alert(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB. Use file transfer for larger content.`);
+      return;
+    }
+
+    console.log(`[Clipboard] Sending ${text.length} chars`);
+    sendMessage({ type: "clipboard", content: text });
+
+    // Show confirmation in transfer list
+    addClipboardSentNotification(text);
+  } catch (err) {
+    console.error("[Clipboard] Failed to read:", err);
+    // Browser may have denied permission
+    alert("Could not access clipboard. Please allow clipboard permissions.");
+  }
+}
+
+function handleClipboardReceived(msg: WsMessage): void {
+  const content = msg.content ?? "";
+  console.log(`[Clipboard] Received ${content.length} chars`);
+  addClipboardReceivedNotification(content);
+}
+
+function addClipboardSentNotification(content: string): void {
+  const item = document.createElement("div");
+  item.className = "clipboard-item sent";
+  item.innerHTML = `
+    <div class="clipboard-header">
+      <span class="clipboard-label">↑ Clipboard sent</span>
+    </div>
+    <div class="clipboard-content">${escapeHtml(truncateText(content, 100))}</div>
+  `;
+  elements.clipboardList.prepend(item);
+
+  // Auto-remove after 5 seconds
+  setTimeout(() => item.remove(), 5000);
+}
+
+function addClipboardReceivedNotification(content: string): void {
+  const item = document.createElement("div");
+  item.className = "clipboard-item received";
+  item.innerHTML = `
+    <div class="clipboard-header">
+      <span class="clipboard-label">↓ Clipboard received</span>
+      <button class="copy-btn">Copy</button>
+    </div>
+    <div class="clipboard-content">${escapeHtml(truncateText(content, 200))}</div>
+  `;
+
+  const copyBtn = item.querySelector<HTMLButtonElement>(".copy-btn")!;
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      copyBtn.textContent = "Copied!";
+      copyBtn.disabled = true;
+      setTimeout(() => item.remove(), 1500);
+    } catch (err) {
+      console.error("[Clipboard] Failed to copy:", err);
+      copyBtn.textContent = "Failed";
+    }
+  });
+
+  elements.clipboardList.prepend(item);
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + "…";
+}
+
+function isInputFocused(): boolean {
+  const active = document.activeElement;
+  return (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    (active instanceof HTMLElement && active.isContentEditable)
+  );
+}
+
+// =============================================================================
 // Transfer UI
 // =============================================================================
 
@@ -665,6 +766,22 @@ function setupEventListeners(): void {
     if (elements.folderInput.files?.length) {
       queueFiles(elements.folderInput.files);
       elements.folderInput.value = "";
+    }
+  });
+
+  // Clipboard
+  elements.sendClipboardBtn.addEventListener("click", sendClipboard);
+
+  // Ctrl+V to send clipboard when connected
+  document.addEventListener("keydown", (e) => {
+    if (
+      state.view === "connected" &&
+      e.ctrlKey &&
+      e.key === "v" &&
+      !isInputFocused()
+    ) {
+      e.preventDefault();
+      sendClipboard();
     }
   });
 

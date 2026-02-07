@@ -11,6 +11,7 @@ const (
 	TransferStart    Type = "file_start"
 	TransferEnd      Type = "file_end"
 	TransferCancel   Type = "file_cancel"
+	Clipboard        Type = "clipboard"
 )
 
 type WsRequest struct {
@@ -23,6 +24,10 @@ type WsRequest struct {
 	Name   string `json:"name,omitempty"`
 	Size   int    `json:"size,omitempty"`
 	Reason string `json:"reason,omitempty"`
+
+	// clipboard
+
+	Content string `json:"content,omitempty"` // for "clipboard"
 }
 
 type WsResponse struct {

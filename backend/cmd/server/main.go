@@ -15,14 +15,7 @@ import (
 )
 
 func main() {
-	// Configure colored logging with source info
-	slog.SetDefault(slog.New(
-		tint.NewHandler(os.Stderr, &tint.Options{
-			Level:      slog.LevelInfo,
-			TimeFormat: time.Kitchen,
-			AddSource:  true,
-		}),
-	))
+	setupLogging(slog.LevelInfo)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -49,4 +42,15 @@ func handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		Code: code,
 	}
 	json.NewEncoder(w).Encode(&resp)
+}
+
+// setupLogging configures colored logging with source info
+func setupLogging(level slog.Level) {
+	slog.SetDefault(slog.New(
+		tint.NewHandler(os.Stderr, &tint.Options{
+			Level:      level,
+			TimeFormat: time.Kitchen,
+			AddSource:  true,
+		}),
+	))
 }

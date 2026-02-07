@@ -61,7 +61,8 @@ func (c *Client) handle() {
 			continue
 		}
 
-		slog.Info("Read message", "message", string(msg))
+		slog.Info("Read message", "size", len(msg))
+		slog.Debug("Message content", "message", string(msg))
 		var req models.WsRequest
 		err = json.Unmarshal(msg, &req)
 		if err != nil {
@@ -90,6 +91,8 @@ func (c *Client) processRequest(cancel context.CancelFunc, req *models.WsRequest
 		return c.handleFraming(req)
 	case models.TransferCancel:
 		return c.handleCancel(cancel, req)
+	case models.Clipboard:
+		return c.handleClipboard(req)
 	}
 
 	return fmt.Errorf("Request type did not match any operation %s", req.Type)
@@ -136,6 +139,19 @@ func (c *Client) handleFraming(req *models.WsRequest) error {
 func (c *Client) handleCancel(cancel context.CancelFunc, req *models.WsRequest) error {
 	cancel()
 	return c.handleFraming(req)
+}
+
+func (c *Client) handleClipboard(req *models.WsRequest) error {
+	s, exists := session.LookupSessionForConn(c.conn)
+	if !exists {
+		return fmt.Errorf("No session found")
+	}
+	peer, exists := s.GetPeer(c.conn)
+	if !exists {
+		return fmt.Errorf("Other peer is disconnected, cannot send framing message")
+	}
+	slog.Debug("Forwarding clipboard to peer", "type", req.Type, "name", req.Name)
+	return peer.SendRequest(req)
 }
 
 func (c *Client) sendFailureResponse() {
