@@ -37,6 +37,7 @@ Control messages are JSON, file data uses binary frames.
 { "type": "file_start", "name": "path/to/file.jpg", "size": 1024000 }
 [binary frame with chunk data]
 { "type": "file_end", "name": "path/to/file.jpg" }
+{ "type": "file_cancel", "name": "path/to/file.jpg", "reason": "user_cancelled" }
 
 // Reconnection
 { "type": "reconnect", "sessionToken": "uuid" }
@@ -69,7 +70,17 @@ backend/
 
 ## Development Commands
 
-### Backend
+### Makefile (recommended)
+```bash
+make dev      # Build container + run locally (Ctrl+C to stop)
+make build    # Build container only
+make test     # Run backend tests
+make run      # Run without container (faster iteration)
+make frontend # Build frontend only
+make deploy   # Deploy to Fly.io
+```
+
+### Backend (manual)
 ```bash
 cd backend
 go run cmd/server/main.go       # Run server
@@ -78,15 +89,12 @@ go test ./...                   # All tests
 go test -v -run TestRoomJoin ./internal/room  # Single test
 ```
 
-### Frontend
+### Frontend (manual)
 ```bash
 cd frontend
 bun install                     # Install deps
 bun run build                   # Build once
 bun run watch                   # Build on change
-
-# Serve via Go backend, or for standalone dev:
-python3 -m http.server 8080 --directory frontend
 ```
 
 ## REST Endpoints

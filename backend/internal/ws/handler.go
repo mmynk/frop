@@ -1,10 +1,12 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"frop/internal/room"
 	"frop/internal/session"
+	"frop/internal/transfer"
 	"frop/models"
 	"log/slog"
 	"net/http"
@@ -17,7 +19,8 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	conn *websocket.Conn
+	conn  *websocket.Conn
+	relay *transfer.Relay
 }
 
 func ServeHttp(w http.ResponseWriter, r *http.Request) {
@@ -27,15 +30,19 @@ func ServeHttp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &Client{conn: conn}
+	client := &Client{
+		conn:  conn,
+		relay: transfer.NewRelay(conn),
+	}
 	go client.handle()
 }
 
 func (c *Client) handle() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	defer func() {
 		c.conn.Close()
+		cancel()
 		if s, exists := session.LookupSessionForConn(c.conn); exists {
 			s.Disconnect(c.conn)
 		}
@@ -50,7 +57,7 @@ func (c *Client) handle() {
 		}
 
 		if msgType == websocket.BinaryMessage {
-			c.relayFile(msg)
+			c.relay.RelayFile(ctx, msg)
 			continue
 		}
 
@@ -63,7 +70,7 @@ func (c *Client) handle() {
 			continue
 		}
 
-		err = c.processRequest(&req)
+		err = c.processRequest(cancel, &req)
 		if err != nil {
 			slog.Error("Failed to process request", "error", err)
 			c.sendFailureResponse()
@@ -72,17 +79,17 @@ func (c *Client) handle() {
 	}
 }
 
-func (c *Client) processRequest(req *models.WsRequest) error {
+func (c *Client) processRequest(cancel context.CancelFunc, req *models.WsRequest) error {
 	slog.Info("Processing request", "type", req.Type)
 	switch req.Type {
 	case models.Join:
 		return c.handleJoin(req)
 	case models.Reconnect:
 		return c.handleReconnect(req)
-	case models.TransferStart:
+	case models.TransferStart, models.TransferEnd:
 		return c.handleFraming(req)
-	case models.TransferEnd:
-		return c.handleFraming(req)
+	case models.TransferCancel:
+		return c.handleCancel(cancel, req)
 	}
 
 	return fmt.Errorf("Request type did not match any operation %s", req.Type)
@@ -122,21 +129,13 @@ func (c *Client) handleFraming(req *models.WsRequest) error {
 	if !exists {
 		return fmt.Errorf("Other peer is disconnected, cannot send framing message")
 	}
+	slog.Debug("Forwarding framing message to peer", "type", req.Type, "name", req.Name)
 	return peer.SendRequest(req)
 }
 
-func (c *Client) relayFile(chunk []byte) error {
-	s, exists := session.LookupSessionForConn(c.conn)
-	if !exists {
-		return fmt.Errorf("No session found")
-	}
-	peer, exists := s.GetPeer(c.conn)
-	if !exists {
-		return fmt.Errorf("Other peer is disconnected, cannot relay chunk")
-	}
-
-	slog.Debug("Sending chunk to peer", "size", len(chunk))
-	return peer.SendChunk(chunk)
+func (c *Client) handleCancel(cancel context.CancelFunc, req *models.WsRequest) error {
+	cancel()
+	return c.handleFraming(req)
 }
 
 func (c *Client) sendFailureResponse() {

@@ -10,6 +10,7 @@ const (
 	PeerDisconnected Type = "peer_disconnected"
 	TransferStart    Type = "file_start"
 	TransferEnd      Type = "file_end"
+	TransferCancel   Type = "file_cancel"
 )
 
 type WsRequest struct {
@@ -19,8 +20,9 @@ type WsRequest struct {
 
 	// transfer
 
-	Name string `json:"name,omitempty"`
-	Size int    `json:"size,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Size   int    `json:"size,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type WsResponse struct {

@@ -254,6 +254,45 @@ header h1 {
     background: var(--error);
 }
 
+.transfer-item.cancelled .progress-bar .fill {
+    background: var(--error);
+}
+
+.transfer-item.cancelled .name {
+    text-decoration: line-through;
+    opacity: 0.6;
+}
+
+/* Transfer header with cancel button */
+.transfer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.transfer-header .name {
+    flex: 1;
+    min-width: 0;
+}
+
+.cancel-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.cancel-btn:hover {
+    opacity: 1;
+    color: var(--error);
+}
+
 /* Disconnected */
 #disconnected {
     text-align: center;

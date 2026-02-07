@@ -96,6 +96,7 @@ Last updated: 2026-02-02
 - [x] Frontend: Folder support with relative paths
 
 ### Milestone 3: Polish ← NEXT
+- [x] Cancel file transfer
 - [ ] Error handling and user feedback
 - [ ] Room expiration/cleanup
 - [ ] Session expiration/cleanup

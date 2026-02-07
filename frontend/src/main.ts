@@ -20,11 +20,13 @@ interface WsMessage {
     | "failed"
     | "peer_disconnected"
     | "file_start"
-    | "file_end";
+    | "file_end"
+    | "file_cancel";
   code?: string;
   sessionToken?: string;
   name?: string;
   size?: number;
+  reason?: string;
 }
 
 interface IncomingTransfer {
@@ -60,6 +62,10 @@ const state: AppState = {
 let sendQueue: File[] = [];
 let isSending = false;
 let incomingTransfer: IncomingTransfer | null = null;
+
+// Cancel state
+const cancelledOutgoing = new Set<string>(); // Files cancelled by sender (us)
+let currentOutgoingSend: { name: string; element: HTMLElement } | null = null;
 
 // =============================================================================
 // DOM Elements
@@ -210,6 +216,10 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
       await handleFileEnd();
       break;
 
+    case "file_cancel":
+      await handleFileCancel(msg);
+      break;
+
     default:
       console.warn("[WS] Unknown message type:", msg.type);
   }
@@ -330,9 +340,20 @@ async function sendFile(file: File): Promise<void> {
 
   sendMessage({ type: "file_start", name, size: file.size });
   const element = addTransferItem(name, file.size, "send");
+  currentOutgoingSend = { name, element };
 
   let offset = 0;
+  let cancelled = false;
+
   while (offset < file.size) {
+    // Check if this transfer was cancelled
+    if (cancelledOutgoing.has(name)) {
+      console.log(`[Transfer] Cancelled by sender: ${name}`);
+      cancelledOutgoing.delete(name);
+      cancelled = true;
+      break;
+    }
+
     // Wait for buffer to drain before sending next chunk (backpressure)
     await waitForBuffer(state.ws!);
 
@@ -344,9 +365,16 @@ async function sendFile(file: File): Promise<void> {
     updateProgress(element, offset, file.size);
   }
 
-  sendMessage({ type: "file_end", name });
-  markComplete(element);
-  console.log(`[Transfer] Sent: ${name}`);
+  currentOutgoingSend = null;
+
+  if (cancelled) {
+    sendMessage({ type: "file_cancel", name, reason: "user_cancelled" });
+    markCancelled(element);
+  } else {
+    sendMessage({ type: "file_end", name });
+    markComplete(element);
+    console.log(`[Transfer] Sent: ${name}`);
+  }
 }
 
 // =============================================================================
@@ -453,6 +481,64 @@ function downloadBlob(blob: Blob, name: string): void {
 }
 
 // =============================================================================
+// File Transfer - Cancel
+// =============================================================================
+
+async function handleFileCancel(msg: WsMessage): Promise<void> {
+  console.log(`[Transfer] Peer cancelled: ${msg.name} (${msg.reason})`);
+
+  // Check if this cancels our outgoing send (peer rejected it)
+  if (currentOutgoingSend && currentOutgoingSend.name === msg.name) {
+    cancelledOutgoing.add(msg.name!);
+    return; // The send loop will handle cleanup
+  }
+
+  // Otherwise it cancels our incoming transfer (peer stopped sending)
+  if (incomingTransfer && incomingTransfer.name === msg.name) {
+    // Close writable stream if open
+    if (incomingTransfer.writable) {
+      try {
+        await incomingTransfer.writable.abort();
+      } catch (err) {
+        console.warn(`[Transfer] Failed to abort writable stream:`, err);
+      }
+    }
+
+    markCancelled(incomingTransfer.element);
+    incomingTransfer = null;
+  }
+}
+
+function cancelOutgoingTransfer(): void {
+  if (!currentOutgoingSend) {
+    console.warn("[Transfer] No outgoing transfer to cancel");
+    return;
+  }
+  console.log(`[Transfer] Cancelling outgoing: ${currentOutgoingSend.name}`);
+  cancelledOutgoing.add(currentOutgoingSend.name);
+}
+
+function cancelIncomingTransfer(): void {
+  if (!incomingTransfer) {
+    console.warn("[Transfer] No incoming transfer to cancel");
+    return;
+  }
+  const name = incomingTransfer.name;
+  console.log(`[Transfer] Rejecting incoming: ${name}`);
+
+  // Send cancel to peer so they stop sending
+  sendMessage({ type: "file_cancel", name, reason: "user_rejected" });
+
+  // Close writable stream if open
+  if (incomingTransfer.writable) {
+    incomingTransfer.writable.abort().catch(() => {});
+  }
+
+  markCancelled(incomingTransfer.element);
+  incomingTransfer = null;
+}
+
+// =============================================================================
 // Transfer UI
 // =============================================================================
 
@@ -463,15 +549,30 @@ function addTransferItem(
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = "transfer-item";
+  item.dataset.direction = direction;
   const arrow = direction === "send" ? "↑" : "↓";
   item.innerHTML = `
-    <div class="name">${arrow} ${escapeHtml(name)}</div>
+    <div class="transfer-header">
+      <div class="name">${arrow} ${escapeHtml(name)}</div>
+      <button class="cancel-btn" title="Cancel transfer">×</button>
+    </div>
     <div class="meta">
       <span>${formatSize(size)}</span>
       <span class="percent">0%</span>
     </div>
     <div class="progress-bar"><div class="fill" style="width: 0%"></div></div>
   `;
+
+  // Wire up cancel button
+  const cancelBtn = item.querySelector<HTMLButtonElement>(".cancel-btn")!;
+  cancelBtn.addEventListener("click", () => {
+    if (direction === "send") {
+      cancelOutgoingTransfer();
+    } else {
+      cancelIncomingTransfer();
+    }
+  });
+
   elements.transferList.appendChild(item);
   return item;
 }
@@ -490,6 +591,17 @@ function markComplete(element: HTMLElement): void {
   element.classList.add("complete");
   element.querySelector<HTMLElement>(".fill")!.style.width = "100%";
   element.querySelector(".percent")!.textContent = "Done";
+  // Hide cancel button
+  const cancelBtn = element.querySelector<HTMLElement>(".cancel-btn");
+  if (cancelBtn) cancelBtn.style.display = "none";
+}
+
+function markCancelled(element: HTMLElement): void {
+  element.classList.add("cancelled");
+  element.querySelector(".percent")!.textContent = "Cancelled";
+  // Hide cancel button
+  const cancelBtn = element.querySelector<HTMLElement>(".cancel-btn");
+  if (cancelBtn) cancelBtn.style.display = "none";
 }
 
 function formatSize(bytes: number): string {

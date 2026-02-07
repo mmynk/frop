@@ -79,3 +79,11 @@ Zero accumulation. Zero storage. Just a relay. The TCP stack handles backpressur
 Cascading backpressure, zero configuration.
 
 Now we can send 6GB files. Time to test again.
+
+## 2026-02-06 — Cancel Feature
+
+Adding the ability to cancel file transfers mid-stream. Either peer can cancel — sender can stop sending, receiver can reject.
+
+Following the usual TDD approach: Claude writes tests first defining the `file_cancel` message contract, human implements the backend relay (just another framing message like `file_start`/`file_end`), then Claude implements the frontend logic.
+
+The interesting part is handling in-flight chunks gracefully. When sender cancels, they need to stop their chunk loop. When receiver cancels, they send the cancel message and the sender needs to be listening for it. Both sides clean up their state and show the cancelled status in UI.

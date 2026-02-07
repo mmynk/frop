@@ -274,6 +274,139 @@ func TestFileTransferNoSession(t *testing.T) {
 }
 
 // =============================================================================
+// FILE CANCEL TESTS
+// =============================================================================
+//
+// These tests verify the file_cancel message is properly relayed between peers.
+// Either party can cancel: sender to abort sending, receiver to reject receiving.
+
+// TestFileCancelBySender tests that sender can cancel mid-transfer
+// Flow: file_start -> some chunks -> file_cancel -> verify receiver gets cancel
+func TestFileCancelBySender(t *testing.T) {
+	defer cleanup()
+
+	server, wsURL := setupTestServer()
+	defer server.Close()
+
+	peer1, peer2, _ := establishSession(t, server, wsURL)
+	defer peer1.Close()
+	defer peer2.Close()
+
+	// Sender starts a file transfer
+	fileStart := map[string]any{"type": "file_start", "name": "bigfile.zip", "size": 1000000}
+	if err := peer1.WriteJSON(fileStart); err != nil {
+		t.Fatalf("Failed to send file_start: %v", err)
+	}
+
+	// Send a few chunks
+	chunk := make([]byte, 1000)
+	for i := 0; i < 3; i++ {
+		if err := peer1.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+			t.Fatalf("Failed to send chunk %d: %v", i, err)
+		}
+	}
+
+	// Sender decides to cancel
+	fileCancel := map[string]any{"type": "file_cancel", "name": "bigfile.zip", "reason": "user_cancelled"}
+	if err := peer1.WriteJSON(fileCancel); err != nil {
+		t.Fatalf("Failed to send file_cancel: %v", err)
+	}
+
+	// Receiver should get: file_start, chunks, then file_cancel
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+	// Expect file_start
+	var startMsg map[string]any
+	if err := peer2.ReadJSON(&startMsg); err != nil {
+		t.Fatalf("Peer2 failed to receive file_start: %v", err)
+	}
+	if startMsg["type"] != "file_start" {
+		t.Errorf("Expected file_start, got %v", startMsg)
+	}
+
+	// Expect the chunks
+	for i := range 3 {
+		msgType, _, err := peer2.ReadMessage()
+		if err != nil {
+			t.Fatalf("Peer2 failed to receive chunk %d: %v", i, err)
+		}
+		if msgType != websocket.BinaryMessage {
+			t.Fatalf("Expected binary message for chunk %d, got type %d", i, msgType)
+		}
+	}
+
+	// Expect file_cancel
+	var cancelMsg map[string]any
+	if err := peer2.ReadJSON(&cancelMsg); err != nil {
+		t.Fatalf("Peer2 failed to receive file_cancel: %v", err)
+	}
+	if cancelMsg["type"] != "file_cancel" {
+		t.Errorf("Expected file_cancel, got %v", cancelMsg)
+	}
+	if cancelMsg["name"] != "bigfile.zip" {
+		t.Errorf("Expected name=bigfile.zip, got %v", cancelMsg["name"])
+	}
+	if cancelMsg["reason"] != "user_cancelled" {
+		t.Errorf("Expected reason=user_cancelled, got %v", cancelMsg["reason"])
+	}
+
+	t.Log("Sender cancel relay successful!")
+}
+
+// TestFileCancelByReceiver tests that receiver can reject a transfer
+// Flow: file_start -> receiver sends file_cancel -> verify sender gets it
+func TestFileCancelByReceiver(t *testing.T) {
+	defer cleanup()
+
+	server, wsURL := setupTestServer()
+	defer server.Close()
+
+	peer1, peer2, _ := establishSession(t, server, wsURL)
+	defer peer1.Close()
+	defer peer2.Close()
+
+	// Sender starts a file transfer
+	fileStart := map[string]any{"type": "file_start", "name": "unwanted.exe", "size": 50000000}
+	if err := peer1.WriteJSON(fileStart); err != nil {
+		t.Fatalf("Failed to send file_start: %v", err)
+	}
+
+	// Receiver sees file_start
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var startMsg map[string]any
+	if err := peer2.ReadJSON(&startMsg); err != nil {
+		t.Fatalf("Peer2 failed to receive file_start: %v", err)
+	}
+	if startMsg["type"] != "file_start" {
+		t.Fatalf("Expected file_start, got %v", startMsg)
+	}
+
+	// Receiver decides to reject the file
+	fileCancel := map[string]any{"type": "file_cancel", "name": "unwanted.exe", "reason": "user_rejected"}
+	if err := peer2.WriteJSON(fileCancel); err != nil {
+		t.Fatalf("Failed to send file_cancel from receiver: %v", err)
+	}
+
+	// Sender should receive the cancel message
+	peer1.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var cancelMsg map[string]any
+	if err := peer1.ReadJSON(&cancelMsg); err != nil {
+		t.Fatalf("Peer1 failed to receive file_cancel: %v", err)
+	}
+	if cancelMsg["type"] != "file_cancel" {
+		t.Errorf("Expected file_cancel, got %v", cancelMsg)
+	}
+	if cancelMsg["name"] != "unwanted.exe" {
+		t.Errorf("Expected name=unwanted.exe, got %v", cancelMsg["name"])
+	}
+	if cancelMsg["reason"] != "user_rejected" {
+		t.Errorf("Expected reason=user_rejected, got %v", cancelMsg["reason"])
+	}
+
+	t.Log("Receiver cancel relay successful!")
+}
+
+// =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
