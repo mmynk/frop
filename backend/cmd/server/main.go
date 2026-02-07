@@ -5,13 +5,25 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"frop/internal/room"
 	"frop/internal/ws"
 	"frop/models"
+
+	"github.com/lmittmann/tint"
 )
 
 func main() {
+	// Configure colored logging with source info
+	slog.SetDefault(slog.New(
+		tint.NewHandler(os.Stderr, &tint.Options{
+			Level:      slog.LevelInfo,
+			TimeFormat: time.Kitchen,
+			AddSource:  true,
+		}),
+	))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
