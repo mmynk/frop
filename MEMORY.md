@@ -80,10 +80,14 @@ Cascading backpressure, zero configuration.
 
 Now we can send 6GB files. Time to test again.
 
-## 2026-02-06 — Cancel Feature
+## 2026-02-06 — Cancel & Clipboard
 
-Adding the ability to cancel file transfers mid-stream. Either peer can cancel — sender can stop sending, receiver can reject.
+Two features in one session.
 
-Following the usual TDD approach: Claude writes tests first defining the `file_cancel` message contract, human implements the backend relay (just another framing message like `file_start`/`file_end`), then Claude implements the frontend logic.
+**Cancel transfers**: Adding the ability to cancel file transfers mid-stream. Either peer can cancel — sender can stop sending, receiver can reject. The interesting part is handling in-flight chunks gracefully. Context cancellation stops the relay goroutine, and both sides clean up their state.
 
-The interesting part is handling in-flight chunks gracefully. When sender cancels, they need to stop their chunk loop. When receiver cancels, they send the cancel message and the sender needs to be listening for it. Both sides clean up their state and show the cancelled status in UI.
+**Clipboard sharing**: The natural complement to file sharing. Copy text on one device, click "📋 Clipboard" (or Ctrl+V), and it appears on the other device with a "Copy" button. Same relay pattern as files — just JSON instead of binary frames.
+
+Both features followed the TDD approach: Claude writes tests defining the message contract, human implements the backend handler (usually just one line in the switch statement pointing to `handleFraming`), then Claude implements the frontend UI.
+
+The pattern is becoming second nature now. New feature? Add the message type to models, write the tests, implement the relay, build the UI. The WebSocket protocol is flexible enough that most features are just "relay this JSON to the peer."

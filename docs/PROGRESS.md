@@ -2,9 +2,9 @@
 
 This document tracks implementation progress to help maintain context across sessions.
 
-## Current Status: Milestone 2 Complete ✅ — File Transfer Working!
+## Current Status: Milestone 3 In Progress — Polish Phase
 
-Last updated: 2026-02-02
+Last updated: 2026-02-06
 
 ---
 
@@ -32,6 +32,9 @@ Last updated: 2026-02-02
 - [x] Folder selection with relative path preservation
 - [x] Send queue for sequential file transfer (prevents interleaving)
 - [x] XSS-safe filename rendering
+- [x] Cancel file transfer (sender or receiver can cancel mid-stream)
+- [x] Clipboard sharing (send/receive text between peers)
+- [x] Ctrl+V keyboard shortcut for clipboard send
 
 ### Not Started
 - [ ] Error display improvements
@@ -65,6 +68,9 @@ Last updated: 2026-02-02
 - [x] Nil pointer dereference protection in session.GetPeer()
 - [x] Integration tests for file transfer (single-chunk, multi-chunk, bidirectional, no-session)
 - [x] Peer struct extracted to own file with `SendRequest`, `SendResponse`, `SendChunk`
+- [x] `file_cancel` message type for transfer cancellation
+- [x] `clipboard` message type for text sharing between peers
+- [x] Integration tests for clipboard relay
 
 ### Not Started
 - [ ] `GET /api/room/:code` endpoint
@@ -95,12 +101,14 @@ Last updated: 2026-02-02
 - [x] Frontend: Progress bars during transfer
 - [x] Frontend: Folder support with relative paths
 
-### Milestone 3: Polish ← NEXT
+### Milestone 3: Polish & v1 Release ← IN PROGRESS
 - [x] Cancel file transfer
+- [x] Clipboard sharing between peers (with 1MB limit)
+- [x] Handle transfer interruption (peer disconnect mid-transfer)
 - [ ] Error handling and user feedback
 - [ ] Room expiration/cleanup
 - [ ] Session expiration/cleanup
-- [x] Handle transfer interruption (peer disconnect mid-transfer)
+- [ ] Full room rejection message (3rd person joining gets "Room full")
 
 ---
 
@@ -225,3 +233,19 @@ None currently! 🎉
   - Files now stream to disk instead of accumulating in RAM
 - **Design insight**: Backend relay model is beautiful — zero memory accumulation, natural TCP backpressure
 - Large file transfers now efficient and crash-resistant!
+
+### 2026-02-06 (Session 7) - Cancel & Clipboard 📋
+- **Claude**: Implemented cancel file transfer
+  - TDD tests for `file_cancel` message relay
+  - Frontend cancel buttons on transfer items
+  - Both sender and receiver can cancel mid-stream
+  - Context cancellation to stop relay goroutine
+- **Human**: Implemented backend cancel handler
+- **Claude**: Implemented clipboard sharing
+  - TDD tests for `clipboard` message relay
+  - Frontend clipboard button + Ctrl+V shortcut
+  - Received clipboard shows notification with "Copy" button
+  - Session validation (no clipboard without established session)
+- **Human**: Implemented backend clipboard handler
+- Added Makefile for common dev commands
+- Added colored logging with tint
