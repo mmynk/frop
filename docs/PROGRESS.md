@@ -276,3 +276,13 @@ None currently! 🎉
   - Nil pointer in `deleteSession()` when peers disconnected
   - Error response on normal WebSocket close
 - **Milestone 3 complete — v1 shipped!**
+
+### 2026-02-08 (Session 9) - Folder Drag-and-Drop Fix
+- **Bug**: Drag-and-drop folder onto dropzone didn't work (only "Select Folder" button worked)
+- **Root cause**: `e.dataTransfer.files` returns folder as single unreadable File, not its contents
+- **Claude**: Implemented `webkitGetAsEntry()` API to detect and traverse dropped folders
+  - `processDroppedItems()` uses entry API to detect directories
+  - `readDirectoryEntries()` recursively traverses folder contents (handles batched results)
+  - `getFileFromEntry()` attaches relative path via `_relativePath` custom property
+  - `sendFile()` updated to use `_relativePath` for drag-dropped folder files
+- **Note**: Receiver-side folder structure preservation (via File System Access API) was attempted but had async race condition issues — deferred for future work

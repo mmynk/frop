@@ -155,3 +155,38 @@ Running all tests together exposed three bugs that didn't show up when running t
 Added a subtle footer link to the source code. Fixed position, bottom-right corner. Ready for HackerNews.
 
 **v1 is shipped.** Time to see what the internet thinks.
+
+## 2026-02-08 (evening) — Folder Drag-and-Drop
+
+Bug report: dragging a folder onto the dropzone doesn't work. Only the "Select Folder" button works.
+
+### The Problem
+
+When you drop a folder, `e.dataTransfer.files` gives you a single `File` object representing the folder itself — not its contents. And that File object is unreadable (size 0, can't slice it). The browser's native `<input webkitdirectory>` works because it triggers special folder traversal code that populates `webkitRelativePath` on each file.
+
+### The Fix
+
+The `webkitGetAsEntry()` API. Each dropped item can be converted to a `FileSystemEntry`, which has `isDirectory` and `isFile` properties. For directories, you call `createReader()` and `readEntries()` to get the contents.
+
+Tricky part: `readEntries()` returns results in batches (browser limitation). You have to call it in a loop until it returns an empty array. Classic callback-based API that needed promisification.
+
+```typescript
+do {
+  batch = await readBatch();
+  // process entries...
+} while (batch.length > 0);
+```
+
+Also had to attach relative paths manually via a custom `_relativePath` property since `webkitRelativePath` is read-only.
+
+### The Rabbit Hole
+
+Tried to also fix the receiver side — when you receive a folder's files, they should download into a folder structure, not as flat files. Used the File System Access API (`showDirectoryPicker`) to let the user choose a download location, then `getDirectoryHandle` with `{ create: true }` to create nested folders.
+
+It... almost worked. But hit async race conditions — multiple files arriving triggered multiple directory picker prompts despite our Promise-based locking. Something about how WebSocket message handlers queue up.
+
+After a few attempts, called it. The sending side works great. Receiver-side folder structure is a future problem.
+
+### Lesson
+
+Sometimes you fix one bug and discover a bigger one hiding behind it. Know when to ship what works.

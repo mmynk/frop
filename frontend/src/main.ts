@@ -372,11 +372,116 @@ function waitForBuffer(ws: WebSocket): Promise<void> {
   });
 }
 
-function queueFiles(files: FileList): void {
+function queueFiles(files: FileList | File[]): void {
   sendQueue.push(...Array.from(files));
   if (!isSending) {
     drainSendQueue();
   }
+}
+
+// =============================================================================
+// Drag-and-Drop Folder Support
+// =============================================================================
+
+/**
+ * Convert a FileSystemFileEntry to a File object with a custom relative path.
+ * The webkitRelativePath property is read-only, so we create a new File with
+ * the path stored in the name for sendFile() to use.
+ */
+function getFileFromEntry(
+  fileEntry: FileSystemFileEntry,
+  relativePath: string
+): Promise<File> {
+  return new Promise((resolve, reject) => {
+    fileEntry.file(
+      (file) => {
+        // Create a new File with webkitRelativePath-like behavior
+        // We'll store the relative path and handle it in sendFile
+        const fileWithPath = new File([file], file.name, { type: file.type });
+        // Attach the relative path as a custom property
+        (fileWithPath as any)._relativePath = relativePath;
+        resolve(fileWithPath);
+      },
+      reject
+    );
+  });
+}
+
+/**
+ * Recursively read all files from a directory entry.
+ * The FileSystemDirectoryReader.readEntries() returns results in batches,
+ * so we must call it repeatedly until it returns an empty array.
+ */
+async function readDirectoryEntries(
+  dirEntry: FileSystemDirectoryEntry,
+  basePath: string
+): Promise<File[]> {
+  const files: File[] = [];
+  const reader = dirEntry.createReader();
+
+  // readEntries returns batches - must call until empty
+  const readBatch = (): Promise<FileSystemEntry[]> => {
+    return new Promise((resolve, reject) => {
+      reader.readEntries(resolve, reject);
+    });
+  };
+
+  let batch: FileSystemEntry[];
+  do {
+    batch = await readBatch();
+    for (const entry of batch) {
+      const entryPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+      if (entry.isFile) {
+        const file = await getFileFromEntry(entry as FileSystemFileEntry, entryPath);
+        files.push(file);
+      } else if (entry.isDirectory) {
+        const subFiles = await readDirectoryEntries(
+          entry as FileSystemDirectoryEntry,
+          entryPath
+        );
+        files.push(...subFiles);
+      }
+    }
+  } while (batch.length > 0);
+
+  return files;
+}
+
+/**
+ * Process dropped items, handling both files and folders.
+ * Uses webkitGetAsEntry() to detect directories and traverse them.
+ */
+async function processDroppedItems(dataTransfer: DataTransfer): Promise<File[]> {
+  const files: File[] = [];
+  const items = dataTransfer.items;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.kind !== "file") continue;
+
+    const entry = item.webkitGetAsEntry();
+    if (!entry) {
+      // Fallback: if webkitGetAsEntry not supported, use regular file
+      const file = item.getAsFile();
+      if (file) files.push(file);
+      continue;
+    }
+
+    if (entry.isDirectory) {
+      // Recursively traverse directory
+      const dirFiles = await readDirectoryEntries(
+        entry as FileSystemDirectoryEntry,
+        entry.name
+      );
+      files.push(...dirFiles);
+    } else if (entry.isFile) {
+      // Single file - get it normally
+      const file = await getFileFromEntry(entry as FileSystemFileEntry, entry.name);
+      files.push(file);
+    }
+  }
+
+  return files;
 }
 
 async function drainSendQueue(): Promise<void> {
@@ -389,7 +494,8 @@ async function drainSendQueue(): Promise<void> {
 }
 
 async function sendFile(file: File): Promise<void> {
-  const name = file.webkitRelativePath || file.name;
+  // Use webkitRelativePath (from folder input), _relativePath (from drag-drop), or just name
+  const name = file.webkitRelativePath || (file as any)._relativePath || file.name;
   console.log(`[Transfer] Sending: ${name} (${file.size} bytes)`);
 
   sendMessage({ type: "file_start", name, size: file.size });
@@ -839,11 +945,15 @@ function setupEventListeners(): void {
     elements.dropzone.classList.remove("dragover");
   });
 
-  elements.dropzone.addEventListener("drop", (e) => {
+  elements.dropzone.addEventListener("drop", async (e) => {
     e.preventDefault();
     elements.dropzone.classList.remove("dragover");
-    if (e.dataTransfer?.files.length) {
-      queueFiles(e.dataTransfer.files);
+    if (e.dataTransfer) {
+      // Use webkitGetAsEntry API to handle folders properly
+      const files = await processDroppedItems(e.dataTransfer);
+      if (files.length > 0) {
+        queueFiles(files);
+      }
     }
   });
 }
