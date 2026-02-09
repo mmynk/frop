@@ -422,3 +422,30 @@ header h1 {
     opacity: 1;
     transform: translateY(0);
 }
+
+/* Footer */
+.footer {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    font-size: 0.8rem;
+}
+
+.footer a {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: rgba(255, 255, 255, 0.35);
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.footer a:hover {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.footer svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
