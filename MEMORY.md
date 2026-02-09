@@ -107,3 +107,51 @@ Considered splitting `handler.go` into `handler.go` + `processor.go`, but at 150
 Added a favicon — went with the "droplets" icon from Lucide (MIT licensed). Fits the name (frop ~ drop) and looks clean at small sizes. Blue outline, SVG format. Simple.
 
 Also researched deployment alternatives since Fly.io killed their free tier. Turns out Cloudflare has a new Containers beta that runs Docker containers on their edge. Could keep the Go backend as-is, no rewrite needed. WebSockets supported. $5/mo base + usage-based pricing. Parked the research in `scratch/cloudflare-deployment-research.md` for when we're ready to migrate.
+
+## 2026-02-08 — v1 Complete! 🎉
+
+The final push. Wrapped up all the Milestone 3 polish items.
+
+### Room Full Rejection
+
+If a third person tries to join a room with two connected peers, they now get a proper error message instead of weird behavior. Added `ErrRoomFull` to the room package, and the frontend shows a friendly toast: "Room is full. Only 2 people can connect."
+
+### Toast Notifications
+
+Replaced all the ugly `alert()` calls with a proper toast notification system. Red toasts slide in from the bottom, auto-dismiss after 4 seconds. Added error code mapping so backend errors like `room_not_found` become "Room not found. Check the code and try again."
+
+### GET /api/room/:code
+
+Added a status endpoint so you can check if a room exists before trying to join. Returns `{exists, peerCount, isFull}`. Useful for building on top of the API.
+
+### Lazy Expiration
+
+Rooms expire 30 minutes after creation. Sessions expire 15 minutes after last activity. But instead of background cleanup goroutines (which add complexity and race conditions), we do lazy cleanup: check expiration in `GetRoom()` and `GetSession()`, delete if stale.
+
+Benefits:
+- No timers to manage
+- No mutex-protected cleanup goroutines
+- Cleanup happens exactly when you need the resource
+- Simpler code, fewer bugs
+
+### Integration Test Refactor
+
+The integration tests were duplicating route handlers from `main.go`. Extracted `internal/routes/routes.go` with a `Setup(mux)` function. Now both `main.go` and tests use the same handlers — tests verify actual production code paths.
+
+Added a `testServer` helper struct with `createRoom()`, `dialWS()`, `joinRoom()` methods. Much cleaner than raw HTTP calls scattered everywhere.
+
+### Three Bugs
+
+Running all tests together exposed three bugs that didn't show up when running tests individually:
+
+1. **Inverted error check**: `if err != nil` should have been `if err == nil` in the disconnect handler. Was trying to disconnect from sessions that *didn't* exist.
+
+2. **Nil pointer in deleteSession**: When deleting a session, the peers might already be nil (disconnected). Added nil checks before accessing `sess.PeerA.Conn`.
+
+3. **Error response on closed connection**: When a WebSocket closes normally, we were logging an error and trying to send a failure response to... a closed connection. Added check for close errors.
+
+### GitHub Footer
+
+Added a subtle footer link to the source code. Fixed position, bottom-right corner. Ready for HackerNews.
+
+**v1 is shipped.** Time to see what the internet thinks.

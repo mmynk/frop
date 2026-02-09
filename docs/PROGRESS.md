@@ -2,9 +2,9 @@
 
 This document tracks implementation progress to help maintain context across sessions.
 
-## Current Status: Milestone 3 In Progress — Polish Phase
+## Current Status: v1 Complete! 🎉
 
-Last updated: 2026-02-06
+Last updated: 2026-02-08
 
 ---
 
@@ -36,8 +36,9 @@ Last updated: 2026-02-06
 - [x] Clipboard sharing (send/receive text between peers)
 - [x] Ctrl+V keyboard shortcut for clipboard send
 
-### Not Started
-- [ ] Error display improvements
+- [x] Toast notifications for errors (replaced alert() calls)
+- [x] User-friendly error messages (room full, room not found, etc.)
+- [x] Input validation feedback
 
 ---
 
@@ -50,6 +51,7 @@ Last updated: 2026-02-06
 - [x] 6-character room code generation (3 letters + 3 digits)
 - [x] Room store (in-memory map of active rooms)
 - [x] `POST /api/room` endpoint returning `{"code":"ABC123"}`
+- [x] `GET /api/room/:code` endpoint for room status
 - [x] Models package for API responses
 - [x] Test for code generation
 - [x] WebSocket `/ws` endpoint
@@ -72,9 +74,11 @@ Last updated: 2026-02-06
 - [x] `clipboard` message type for text sharing between peers
 - [x] Integration tests for clipboard relay
 
-### Not Started
-- [ ] `GET /api/room/:code` endpoint
-- [ ] Room expiration/cleanup
+- [x] Room full rejection (3rd person gets "Room is full" error)
+- [x] Room expiration (30 min, lazy cleanup in GetRoom)
+- [x] Session expiration (15 min inactivity, lazy cleanup in GetSession)
+- [x] Shared routes package for test reuse
+- [x] Error response fields in WsResponse
 
 ---
 
@@ -101,34 +105,30 @@ Last updated: 2026-02-06
 - [x] Frontend: Progress bars during transfer
 - [x] Frontend: Folder support with relative paths
 
-### Milestone 3: Polish & v1 Release ← IN PROGRESS
+### Milestone 3: Polish & v1 Release ✅
 - [x] Cancel file transfer
 - [x] Clipboard sharing between peers (with 1MB limit)
 - [x] Handle transfer interruption (peer disconnect mid-transfer)
-- [ ] Error handling and user feedback
-- [ ] Room expiration/cleanup
-- [ ] Session expiration/cleanup
-- [ ] Full room rejection message (3rd person joining gets "Room full")
+- [x] Error handling and user feedback (toast notifications)
+- [x] Room expiration/cleanup (30 min, lazy)
+- [x] Session expiration/cleanup (15 min inactivity, lazy)
+- [x] Full room rejection message (3rd person joining gets "Room full")
+- [x] GET /api/room/:code endpoint
 
 ---
 
-## Known Limitations
+## Architecture Notes
 
-### Session Expiration
-⚠️ **Sessions currently never expire.** Once a session token is created, it remains valid indefinitely in memory until the server restarts. This means:
-- Session tokens in URLs work forever (until server restart)
-- No automatic cleanup of inactive sessions
-- Memory usage grows with each room created
+### Lazy Expiration
+Instead of background cleanup goroutines, expiration is checked lazily:
+- **Rooms**: Expire 30 min after creation, checked in `GetRoom()`
+- **Sessions**: Expire 15 min after last activity, checked in `GetSession()`
+- `GetSession()` also updates `LastSeen` on each access, keeping active sessions alive
 
-**Future work needed:**
-- [ ] Add session expiration (e.g., 24 hours of inactivity)
-- [ ] Periodic cleanup of expired sessions
-- [ ] Handle expired session gracefully on frontend (already implemented - shows landing view)
+Benefits: No timers, no race conditions, simpler code, cleanup happens exactly when needed.
 
-### Room Code Reuse
-⚠️ **Room codes can be reused by 3rd parties.** After two peers connect, the original 6-character room code remains valid in the room store. A third person could theoretically join with that code, breaking the 2-peer model.
-
-**Mitigation:** The URL-based session token workflow encourages users to share the session URL (`?s=token`) instead of the room code, which pairs with an existing session rather than creating new connections.
+### Shared Routes
+`internal/routes/routes.go` sets up all HTTP handlers. Both `main.go` and integration tests use `routes.Setup(mux)` — tests verify actual production code paths.
 
 ---
 
@@ -137,6 +137,11 @@ Last updated: 2026-02-06
 None currently! 🎉
 
 ### Fixed Issues
+
+**2026-02-08: Handler Disconnect Bug**
+- **Symptom**: Nil pointer crash when WebSocket closed during tests
+- **Root cause**: `err != nil` check was inverted (should be `err == nil`)
+- **Fix**: Corrected condition, added nil checks in `deleteSession()`
 
 **2026-02-03: Large File Transfer Crash (SIGSEGV)**
 - **Symptom**: 6GB file transfers caused backend crash with nil pointer dereference
@@ -249,3 +254,25 @@ None currently! 🎉
 - **Human**: Implemented backend clipboard handler
 - Added Makefile for common dev commands
 - Added colored logging with tint
+
+### 2026-02-08 (Session 8) - v1 Complete! 🎉
+- **Claude**: TDD tests for room full rejection and GET endpoint
+- **Human**: Implemented room capacity check and GET /api/room/:code
+- **Claude**: Frontend error handling overhaul
+  - Toast notification system (CSS animations, auto-dismiss)
+  - Error code mapping for user-friendly messages
+  - Replaced all `alert()` calls
+  - Input validation feedback
+- **Claude + Human**: Refactored integration tests
+  - Created `internal/routes/routes.go` for shared route setup
+  - Tests now use same handlers as production
+  - Added `testServer` helper with `createRoom()`, `dialWS()`, `joinRoom()`
+- **Human**: Implemented lazy expiration
+  - Rooms expire 30 min after creation
+  - Sessions expire 15 min after last activity
+  - `GetSession()` updates `LastSeen` on access
+- **Claude**: Fixed 3 bugs exposed by new tests
+  - Inverted error check in disconnect handler
+  - Nil pointer in `deleteSession()` when peers disconnected
+  - Error response on normal WebSocket close
+- **Milestone 3 complete — v1 shipped!**

@@ -71,6 +71,7 @@ If you want to integrate or build on top of Frop:
 
 **REST:**
 - `POST /api/room` → Returns `{"code":"ABC123"}`
+- `GET /api/room/:code` → Returns `{"exists": true, "peerCount": 1, "isFull": false}`
 
 **WebSocket (`/ws`):**
 ```json
