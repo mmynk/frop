@@ -5,4 +5,5 @@ import "errors"
 var (
 	ErrRoomNotFound = errors.New("room not found")
 	ErrRoomFull     = errors.New("room full")
+	ErrRoomExpired  = errors.New("room expired")
 )

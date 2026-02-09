@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-var alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const lifespan = 30 * time.Minute
+const alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 type Room struct {
-	Peers []*Peer
-	Code  string
+	Peers     []*Peer
+	Code      string
+	CreatedAt time.Time
 }
 
 // CreateRoom creates a new empty room, stores it, and returns the code
@@ -20,8 +23,9 @@ func CreateRoom() string {
 	peers := make([]*Peer, 0, 2)
 	code := generateRandomCode()
 	room := &Room{
-		peers,
-		code,
+		Peers:     peers,
+		Code:      code,
+		CreatedAt: time.Now(),
 	}
 	roomStore.rooms[code] = room
 	slog.Info("Created new room", "code", code)
@@ -32,6 +36,11 @@ func GetRoom(code string) (*Room, error) {
 	room, exists := roomStore.rooms[code]
 	if !exists {
 		return nil, ErrRoomNotFound
+	}
+	if time.Since(room.CreatedAt) > lifespan {
+		// lazy expiration: if expired, remove from store
+		roomStore.deleteRoom(code)
+		return nil, ErrRoomExpired
 	}
 	return room, nil
 }
@@ -51,6 +60,10 @@ func JoinRoom(code string, conn *websocket.Conn) (*Room, error) {
 	room.Peers = append(room.Peers, peer)
 	slog.Info("Successfully joined room", "code", code)
 	return room, nil
+}
+
+func (r *Room) SetCreatedAt(t time.Time) {
+	r.CreatedAt = t
 }
 
 // generateRandomCode generates a random six digit alpha-numeric code, eg: ABC123

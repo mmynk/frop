@@ -12,6 +12,10 @@ func newStore() *store {
 	return &store{rooms}
 }
 
+func (s *store) deleteRoom(code string) {
+	delete(s.rooms, code)
+}
+
 // Reset deletes the store (used for testing)
 func Reset() {
 	roomStore = newStore()

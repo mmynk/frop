@@ -43,7 +43,7 @@ func (c *Client) handle() {
 	defer func() {
 		c.conn.Close()
 		cancel()
-		if s, exists := session.LookupSessionForConn(c.conn); exists {
+		if s, err := session.LookupSessionForConn(c.conn); err == nil {
 			s.Disconnect(c.conn)
 		}
 	}()
@@ -51,8 +51,10 @@ func (c *Client) handle() {
 	for {
 		msgType, msg, err := c.conn.ReadMessage()
 		if err != nil {
-			slog.Error("Failed to read msg", "error", err)
-			c.sendFailureResponse(err)
+			// Don't log or send response for normal close errors
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				slog.Error("Failed to read msg", "error", err)
+			}
 			return
 		}
 
@@ -115,9 +117,10 @@ func (c *Client) handleJoin(req *models.WsRequest) error {
 
 func (c *Client) handleReconnect(req *models.WsRequest) error {
 	token := req.SessionToken
-	s, exists := session.GetSession(token)
-	if !exists {
-		return fmt.Errorf("No session found with token=%s", token)
+	s, err := session.GetSession(token)
+	if err != nil {
+		slog.Error("No session found", "token", token)
+		return err
 	}
 	peer := &room.Peer{Conn: c.conn}
 	return s.Reconnect(peer)

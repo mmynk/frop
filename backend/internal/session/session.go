@@ -95,6 +95,10 @@ func (s *Session) Disconnect(conn *websocket.Conn) {
 	}
 }
 
+func (s *Session) SetLastSeen(t time.Time) {
+	s.LastSeen = t
+}
+
 func connectedResponse(token string) *models.WsResponse {
 	return &models.WsResponse{
 		Type:         models.Connected,
