@@ -9,12 +9,70 @@ import (
 	"time"
 
 	"frop/internal/room"
+	"frop/internal/routes"
 	"frop/internal/session"
-	"frop/internal/ws"
 	"frop/models"
 
 	"github.com/gorilla/websocket"
 )
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// testServer wraps httptest.Server with convenience methods
+type testServer struct {
+	*httptest.Server
+	wsURL string
+}
+
+// newTestServer creates a test server with all API routes configured
+func newTestServer() *testServer {
+	mux := http.NewServeMux()
+	routes.Setup(mux)
+
+	server := httptest.NewServer(mux)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+
+	return &testServer{Server: server, wsURL: wsURL}
+}
+
+// createRoom creates a room via API and returns the code
+func (ts *testServer) createRoom(t *testing.T) string {
+	resp, err := http.Post(ts.URL+"/api/room", "application/json", nil)
+	if err != nil {
+		t.Fatalf("Failed to create room: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result models.RoomResponse
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Code
+}
+
+// dialWS connects to the WebSocket endpoint
+func (ts *testServer) dialWS(t *testing.T) *websocket.Conn {
+	conn, _, err := websocket.DefaultDialer.Dial(ts.wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to dial WebSocket: %v", err)
+	}
+	return conn
+}
+
+// joinRoom sends a join message and returns the response
+func joinRoom(t *testing.T, conn *websocket.Conn, code string) map[string]any {
+	conn.WriteJSON(map[string]string{"type": "join", "code": code})
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg map[string]any
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("Failed to read join response: %v", err)
+	}
+	return msg
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
 
 // TestFullRoomFlow tests the complete flow:
 // 1. Create room via POST /api/room
@@ -24,31 +82,11 @@ import (
 func TestFullRoomFlow(t *testing.T) {
 	defer cleanup()
 
-	// Set up test server with both HTTP and WebSocket handlers
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/room", func(w http.ResponseWriter, r *http.Request) {
-		code := room.CreateRoom()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(models.CreateRoomResponse{Code: code})
-	})
-	mux.HandleFunc("/ws", ws.ServeHttp)
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
+	ts := newTestServer()
+	defer ts.Close()
 
 	// Step 1: Create room
-	resp, err := http.Post(server.URL+"/api/room", "application/json", nil)
-	if err != nil {
-		t.Fatalf("Failed to create room: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var createResp models.CreateRoomResponse
-	if err := json.NewDecoder(resp.Body).Decode(&createResp); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	code := createResp.Code
+	code := ts.createRoom(t)
 	t.Logf("Created room with code: %s", code)
 
 	if len(code) != 6 {
@@ -56,15 +94,9 @@ func TestFullRoomFlow(t *testing.T) {
 	}
 
 	// Step 2: Creator connects via WebSocket and joins
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-
-	creator, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Creator failed to connect: %v", err)
-	}
+	creator := ts.dialWS(t)
 	defer creator.Close()
 
-	// Send join message
 	joinMsg := map[string]string{"type": "join", "code": code}
 	if err := creator.WriteJSON(joinMsg); err != nil {
 		t.Fatalf("Creator failed to send join: %v", err)
@@ -72,10 +104,7 @@ func TestFullRoomFlow(t *testing.T) {
 	t.Log("Creator sent join message")
 
 	// Step 3: Joiner connects and joins
-	joiner, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Joiner failed to connect: %v", err)
-	}
+	joiner := ts.dialWS(t)
 	defer joiner.Close()
 
 	if err := joiner.WriteJSON(joinMsg); err != nil {
@@ -104,13 +133,13 @@ func TestFullRoomFlow(t *testing.T) {
 
 	t.Log("Both peers received connected message!")
 
-	// For now, just verify the room has 2 peers
-	time.Sleep(100 * time.Millisecond) // Give goroutines time to process
-	r, exists := room.GetRoom(code)
-	if !exists {
+	// Verify room exists
+	time.Sleep(100 * time.Millisecond)
+	r, err := room.GetRoom(code)
+	if err != nil {
 		t.Fatal("Room should exist")
 	}
-	_ = r // Use room to verify peer count once JoinRoom is wired up
+	_ = r
 	t.Log("Room exists - test framework working!")
 
 	// Step 5: Verify both received session tokens
@@ -132,37 +161,18 @@ func TestFullRoomFlow(t *testing.T) {
 	t.Logf("Both peers received matching session token: %s", creatorToken)
 }
 
-// TestSessionTokenReconnect tests reconnection flow:
-// 1. Two peers connect and get session token
-// 2. One peer disconnects
-// 3. Peer reconnects using session token
-// 4. Should receive "connected" and be able to continue
+// TestSessionTokenReconnect tests reconnection flow
 func TestSessionTokenReconnect(t *testing.T) {
 	defer cleanup()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/room", func(w http.ResponseWriter, r *http.Request) {
-		code := room.CreateRoom()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(models.CreateRoomResponse{Code: code})
-	})
-	mux.HandleFunc("/ws", ws.ServeHttp)
+	ts := newTestServer()
+	defer ts.Close()
 
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-
-	// Create room and get code
-	resp, _ := http.Post(server.URL+"/api/room", "application/json", nil)
-	var createResp models.CreateRoomResponse
-	json.NewDecoder(resp.Body).Decode(&createResp)
-	resp.Body.Close()
-	code := createResp.Code
+	code := ts.createRoom(t)
 
 	// Both peers join
-	peer1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
-	peer2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	peer1 := ts.dialWS(t)
+	peer2 := ts.dialWS(t)
 	defer peer2.Close()
 
 	peer1.WriteJSON(map[string]string{"type": "join", "code": code})
@@ -185,10 +195,7 @@ func TestSessionTokenReconnect(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Peer1 reconnects with session token
-	peer1Reconnected, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to reconnect: %v", err)
-	}
+	peer1Reconnected := ts.dialWS(t)
 	defer peer1Reconnected.Close()
 
 	reconnectMsg := map[string]string{"type": "reconnect", "sessionToken": sessionToken}
@@ -214,14 +221,10 @@ func TestSessionTokenReconnect(t *testing.T) {
 func TestReconnectInvalidToken(t *testing.T) {
 	defer cleanup()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", ws.ServeHttp)
+	ts := newTestServer()
+	defer ts.Close()
 
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn := ts.dialWS(t)
 	defer conn.Close()
 
 	// Try to reconnect with fake token
@@ -250,29 +253,14 @@ func TestReconnectInvalidToken(t *testing.T) {
 func TestPeerDisconnectNotification(t *testing.T) {
 	defer cleanup()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/room", func(w http.ResponseWriter, r *http.Request) {
-		code := room.CreateRoom()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(models.CreateRoomResponse{Code: code})
-	})
-	mux.HandleFunc("/ws", ws.ServeHttp)
+	ts := newTestServer()
+	defer ts.Close()
 
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-
-	// Create room
-	resp, _ := http.Post(server.URL+"/api/room", "application/json", nil)
-	var createResp models.CreateRoomResponse
-	json.NewDecoder(resp.Body).Decode(&createResp)
-	resp.Body.Close()
-	code := createResp.Code
+	code := ts.createRoom(t)
 
 	// Both peers join
-	peer1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
-	peer2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	peer1 := ts.dialWS(t)
+	peer2 := ts.dialWS(t)
 	defer peer2.Close()
 
 	peer1.WriteJSON(map[string]string{"type": "join", "code": code})
@@ -292,7 +280,6 @@ func TestPeerDisconnectNotification(t *testing.T) {
 	peer2.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var disconnectMsg map[string]any
 	if err := peer2.ReadJSON(&disconnectMsg); err != nil {
-		// Timeout is acceptable - notification might not be implemented yet
 		t.Log("No disconnect notification received (may not be implemented yet)")
 		return
 	}
@@ -304,32 +291,111 @@ func TestPeerDisconnectNotification(t *testing.T) {
 	t.Log("Peer correctly notified of disconnect!")
 }
 
+// TestRoomFullRejection verifies that a 3rd peer cannot join a full room
+func TestRoomFullRejection(t *testing.T) {
+	defer cleanup()
+
+	ts := newTestServer()
+	defer ts.Close()
+
+	code := ts.createRoom(t)
+	t.Logf("Created room with code: %s", code)
+
+	// Peer 1 and 2 join (need to send both before reading - they wait for each other)
+	peer1 := ts.dialWS(t)
+	defer peer1.Close()
+	peer2 := ts.dialWS(t)
+	defer peer2.Close()
+
+	peer1.WriteJSON(map[string]string{"type": "join", "code": code})
+	peer2.WriteJSON(map[string]string{"type": "join", "code": code})
+
+	// Now both can read their connected messages
+	peer1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	peer2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg1, msg2 map[string]any
+	peer1.ReadJSON(&msg1)
+	peer2.ReadJSON(&msg2)
+
+	if msg1["type"] != "connected" || msg2["type"] != "connected" {
+		t.Fatalf("Expected both peers to receive 'connected', got: %v and %v", msg1, msg2)
+	}
+	t.Log("Both peers connected successfully")
+
+	// Peer 3 tries to join the full room - should get immediate rejection
+	peer3 := ts.dialWS(t)
+	defer peer3.Close()
+	msg3 := joinRoom(t, peer3, code)
+
+	if msg3["type"] != "failed" {
+		t.Errorf("Expected type='failed' for 3rd peer, got: %v", msg3["type"])
+	}
+
+	if msg3["error"] != "room full" {
+		t.Errorf("Expected error='room full', got: %v", msg3["error"])
+	}
+
+	t.Logf("Peer3 correctly rejected: %v", msg3)
+}
+
 // TestJoinNonexistentRoom verifies joining a bad code fails gracefully
 func TestJoinNonexistentRoom(t *testing.T) {
 	defer cleanup()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", ws.ServeHttp)
+	ts := newTestServer()
+	defer ts.Close()
 
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect: %v", err)
-	}
+	conn := ts.dialWS(t)
 	defer conn.Close()
 
-	// Try to join nonexistent room
-	joinMsg := map[string]string{"type": "join", "code": "FAKE99"}
-	if err := conn.WriteJSON(joinMsg); err != nil {
-		t.Fatalf("Failed to send join: %v", err)
+	msg := joinRoom(t, conn, "FAKE99")
+
+	if msg["type"] != "failed" {
+		t.Errorf("Expected type='failed', got: %v", msg["type"])
 	}
 
-	// TODO(human): Should receive an error message back
-	// For now, this test just verifies the server doesn't crash
-	t.Log("Server handled bad code without crashing")
+	if msg["error"] != "room not found" {
+		t.Errorf("Expected error='room not found', got: %v", msg["error"])
+	}
+
+	t.Logf("Nonexistent room correctly rejected: %v", msg)
+}
+
+// TestGetRoomEndpoint tests the GET /api/room/:code endpoint
+func TestGetRoomEndpoint(t *testing.T) {
+	defer cleanup()
+
+	ts := newTestServer()
+	defer ts.Close()
+
+	// Test 1: Nonexistent room returns error
+	resp, err := http.Get(ts.URL + "/api/room/FAKE99")
+	if err != nil {
+		t.Fatalf("Failed to GET nonexistent room: %v", err)
+	}
+	var notFoundResp models.RoomResponse
+	json.NewDecoder(resp.Body).Decode(&notFoundResp)
+	resp.Body.Close()
+	if notFoundResp.Error == "" {
+		t.Error("Expected error for nonexistent room")
+	}
+	t.Logf("Nonexistent room correctly returns error: %s", notFoundResp.Error)
+
+	// Create a room
+	code := ts.createRoom(t)
+
+	// Test 2: Existing room returns code
+	resp, err = http.Get(ts.URL + "/api/room/" + code)
+	if err != nil {
+		t.Fatalf("Failed to GET existing room: %v", err)
+	}
+	var roomResp models.RoomResponse
+	json.NewDecoder(resp.Body).Decode(&roomResp)
+	resp.Body.Close()
+	if roomResp.Code != code {
+		t.Errorf("Expected code=%s, got %s", code, roomResp.Code)
+	}
+	t.Logf("Room status: %+v", roomResp)
 }
 
 func cleanup() {

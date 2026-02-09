@@ -33,4 +33,12 @@ type WsRequest struct {
 type WsResponse struct {
 	Type         Type   `json:"type"`
 	SessionToken string `json:"sessionToken,omitempty"` // included in "connected" response
+	Error        string `json:"error,omitempty"`
+}
+
+// RoomStatusResponse is returned by GET /api/room/:code
+type RoomStatusResponse struct {
+	Exists    bool `json:"exists"`
+	PeerCount int  `json:"peerCount"`
+	IsFull    bool `json:"isFull"`
 }

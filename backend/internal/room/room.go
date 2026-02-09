@@ -28,17 +28,25 @@ func CreateRoom() string {
 	return code
 }
 
-func GetRoom(code string) (*Room, bool) {
+func GetRoom(code string) (*Room, error) {
 	room, exists := roomStore.rooms[code]
-	return room, exists
+	if !exists {
+		return nil, ErrRoomNotFound
+	}
+	return room, nil
 }
 
 func JoinRoom(code string, conn *websocket.Conn) (*Room, error) {
 	room, exists := roomStore.rooms[code]
 	if !exists {
 		slog.Error("No room found", "code", code)
-		return nil, fmt.Errorf("No room found for code=%s", code)
+		return nil, ErrRoomNotFound
 	}
+
+	if len(room.Peers) > 1 {
+		return nil, ErrRoomFull
+	}
+
 	peer := &Peer{conn}
 	room.Peers = append(room.Peers, peer)
 	slog.Info("Successfully joined room", "code", code)

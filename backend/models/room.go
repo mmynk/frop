@@ -1,5 +1,6 @@
 package models
 
-type CreateRoomResponse struct {
-	Code string `json:"code"`
+type RoomResponse struct {
+	Code  string `json:"code,omitempty"`
+	Error string `json:"error,omitempty"`
 }

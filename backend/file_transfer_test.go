@@ -416,7 +416,7 @@ func setupTestServer() (*httptest.Server, string) {
 	mux.HandleFunc("POST /api/room", func(w http.ResponseWriter, r *http.Request) {
 		code := room.CreateRoom()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(models.CreateRoomResponse{Code: code})
+		json.NewEncoder(w).Encode(models.RoomResponse{Code: code})
 	})
 	mux.HandleFunc("/ws", ws.ServeHttp)
 
@@ -435,7 +435,7 @@ func establishSession(t *testing.T, server *httptest.Server, wsURL string) (*web
 	if err != nil {
 		t.Fatalf("Failed to create room: %v", err)
 	}
-	var createResp models.CreateRoomResponse
+	var createResp models.RoomResponse
 	json.NewDecoder(resp.Body).Decode(&createResp)
 	resp.Body.Close()
 	code := createResp.Code

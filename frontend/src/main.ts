@@ -29,6 +29,8 @@ interface WsMessage {
   size?: number;
   reason?: string;
   content?: string; // for "clipboard"
+  error?: string; // error code: "room full", "room not found", etc.
+  message?: string; // human-readable message from server
 }
 
 interface IncomingTransfer {
@@ -49,6 +51,14 @@ const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB - efficient for all file sizes
 const MAX_BUFFER_SIZE = 8 * 1024 * 1024; // 8 MB - pause sending when buffer exceeds this (2x chunk size)
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100 MB - use streaming for files larger than this
 const MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1 MB - max clipboard text size
+
+// Error code to user-friendly message mapping
+const ERROR_MESSAGES: Record<string, string> = {
+  "room not found": "Room not found. Check the code and try again.",
+  "room full": "Room is full. Only 2 people can connect.",
+  "session expired": "Session expired. Please start over.",
+  "invalid request": "Something went wrong. Please try again.",
+};
 
 // =============================================================================
 // State
@@ -80,6 +90,9 @@ const elements = {
   waiting: document.getElementById("waiting")!,
   connected: document.getElementById("connected")!,
   disconnected: document.getElementById("disconnected")!,
+
+  // Toast
+  toastContainer: document.getElementById("toastContainer")!,
 
   // Landing
   createRoomBtn: document.getElementById("createRoom")!,
@@ -121,6 +134,34 @@ function showView(view: View): void {
 
   state.view = view;
   console.log(`[View] Switched to: ${view}`);
+}
+
+// =============================================================================
+// Toast Notifications
+// =============================================================================
+
+function getErrorMessage(code: string): string {
+  return ERROR_MESSAGES[code] ?? code ?? "An error occurred.";
+}
+
+function showError(message: string): void {
+  console.error(`[Toast] ${message}`);
+
+  const toast = document.createElement("div");
+  toast.className = "toast error";
+  toast.textContent = message;
+
+  elements.toastContainer.appendChild(toast);
+
+  // Trigger reflow for animation
+  toast.offsetHeight;
+  toast.classList.add("visible");
+
+  // Auto-dismiss after 4 seconds
+  setTimeout(() => {
+    toast.classList.remove("visible");
+    toast.addEventListener("transitionend", () => toast.remove());
+  }, 4000);
 }
 
 // =============================================================================
@@ -196,7 +237,10 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
       break;
 
     case "failed":
-      console.error("[WS] Operation failed");
+      console.error("[WS] Operation failed:", msg.error);
+
+      // Show user-friendly error message
+      showError(getErrorMessage(msg.error ?? ""));
 
       // Clear session token from state and URL
       state.sessionToken = null;
@@ -204,7 +248,6 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
       urlWithoutToken.searchParams.delete("s");
       window.history.replaceState({}, "", urlWithoutToken.toString());
 
-      console.log("[Room] Session expired or invalid - returning to landing");
       showView("landing");
       break;
 
@@ -268,6 +311,8 @@ async function createRoom(): Promise<void> {
 function joinRoom(code: string): void {
   if (!code || code.length !== 6) {
     console.error("[Room] Invalid code:", code);
+    showError("Please enter a 6-character room code.");
+    elements.codeInput.focus();
     return;
   }
 
@@ -561,7 +606,7 @@ async function sendClipboard(): Promise<void> {
 
     if (text.length > MAX_CLIPBOARD_SIZE) {
       console.warn(`[Clipboard] Too large: ${text.length} bytes (max ${MAX_CLIPBOARD_SIZE})`);
-      alert(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB. Use file transfer for larger content.`);
+      showError(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB.`);
       return;
     }
 
@@ -572,8 +617,7 @@ async function sendClipboard(): Promise<void> {
     addClipboardSentNotification(text);
   } catch (err) {
     console.error("[Clipboard] Failed to read:", err);
-    // Browser may have denied permission
-    alert("Could not access clipboard. Please allow clipboard permissions.");
+    showError("Could not access clipboard. Please allow clipboard permissions.");
   }
 }
 

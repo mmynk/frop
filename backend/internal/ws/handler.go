@@ -52,7 +52,7 @@ func (c *Client) handle() {
 		msgType, msg, err := c.conn.ReadMessage()
 		if err != nil {
 			slog.Error("Failed to read msg", "error", err)
-			c.sendFailureResponse()
+			c.sendFailureResponse(err)
 			return
 		}
 
@@ -67,14 +67,14 @@ func (c *Client) handle() {
 		err = json.Unmarshal(msg, &req)
 		if err != nil {
 			slog.Error("Failed to decode msg", "error", err)
-			c.sendFailureResponse()
+			c.sendFailureResponse(err)
 			continue
 		}
 
 		err = c.processRequest(cancel, &req)
 		if err != nil {
 			slog.Error("Failed to process request", "error", err)
-			c.sendFailureResponse()
+			c.sendFailureResponse(err)
 			continue
 		}
 	}
@@ -136,8 +136,12 @@ func (c *Client) handleClipboard(req *models.WsRequest) error {
 	return c.forwardToPeer(req)
 }
 
-func (c *Client) sendFailureResponse() {
-	c.conn.WriteJSON(&models.WsResponse{Type: models.Failed})
+func (c *Client) sendFailureResponse(err error) {
+	res := &models.WsResponse{
+		Type:  models.Failed,
+		Error: err.Error(),
+	}
+	c.conn.WriteJSON(res)
 }
 
 func (c *Client) forwardToPeer(req *models.WsRequest) error {

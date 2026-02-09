@@ -1,15 +1,9 @@
 package session
 
 import (
-	"errors"
 	"frop/internal/room"
 
 	"github.com/gorilla/websocket"
-)
-
-var (
-	ErrSessionNotFound  = errors.New("session not found")
-	ErrPeerDisconnected = errors.New("peer disconnected")
 )
 
 var sessionStore = newStore()
