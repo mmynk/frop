@@ -5,6 +5,7 @@
 Share files instantly: one person creates a room, the other joins with a 6-character code. No accounts, no file storage - files stream directly between browsers through the server.
 
 **🚀 Live at:** [frop.mmynk.com](https://frop.mmynk.com)
+**📦 Open Source:** MIT License
 
 ## Current Status
 
