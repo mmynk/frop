@@ -2,6 +2,7 @@ package session
 
 import (
 	"frop/internal/room"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -9,56 +10,53 @@ import (
 
 const lifespan = 15 * time.Minute
 
-var sessionStore = newStore()
+var (
+	sessionsByToken sync.Map // map[string]*Session
+	sessionsByConn  sync.Map // map[*websocket.Conn]*Session
+)
 
-type store struct {
-	sessionsByToken map[string]*Session
-	sessionsByConn  map[*websocket.Conn]*Session // needed to update peers in a session on disconnect
-	// TODO: mutex for multiple goroutines
-}
-
-func newStore() *store {
-	st := make(map[string]*Session)
-	sc := make(map[*websocket.Conn]*Session)
-	return &store{st, sc}
-}
-
-func (s *store) deleteSession(token string) {
-	sess, exists := s.sessionsByToken[token]
+func deleteSession(token string) {
+	v, exists := sessionsByToken.Load(token)
 	if !exists {
 		return
 	}
-	delete(s.sessionsByToken, token)
-	// Peers may be nil if already disconnected
-	if sess.PeerA != nil {
-		delete(s.sessionsByConn, sess.PeerA.Conn)
+	sessionsByToken.Delete(token)
+
+	sess := v.(*Session)
+	// Load peers atomically and clean up conn mappings
+	if peerA := sess.peerA.Load(); peerA != nil {
+		sessionsByConn.Delete(peerA.Conn)
 	}
-	if sess.PeerB != nil {
-		delete(s.sessionsByConn, sess.PeerB.Conn)
+	if peerB := sess.peerB.Load(); peerB != nil {
+		sessionsByConn.Delete(peerB.Conn)
 	}
 }
 
 func GetSession(token string) (*Session, error) {
-	s, exists := sessionStore.sessionsByToken[token]
+	v, exists := sessionsByToken.Load(token)
 	if !exists {
 		return nil, ErrSessionNotFound
 	}
-	if time.Since(s.LastSeen) > lifespan {
-		// lazy expiration: if expired, remove from store
-		sessionStore.deleteSession(token)
+	s := v.(*Session)
+
+	lastSeen := time.Unix(0, s.lastSeen.Load())
+	if time.Since(lastSeen) > lifespan {
+		deleteSession(token)
 		return nil, ErrSessionExpired
 	}
-	// update last seen to now
-	s.LastSeen = time.Now()
+	s.lastSeen.Store(time.Now().UnixNano())
 	return s, nil
 }
 
 func LookupSessionForConn(conn *websocket.Conn) (*Session, error) {
-	s, exists := sessionStore.sessionsByConn[conn]
+	v, exists := sessionsByConn.Load(conn)
 	if !exists {
 		return nil, ErrSessionNotFound
 	}
-	if time.Since(s.LastSeen) > lifespan {
+	s := v.(*Session)
+
+	lastSeen := time.Unix(0, s.lastSeen.Load())
+	if time.Since(lastSeen) > lifespan {
 		return nil, ErrSessionExpired
 	}
 	return s, nil
@@ -76,7 +74,32 @@ func GetRemotePeer(conn *websocket.Conn) (*room.Peer, error) {
 	return peer, nil
 }
 
-// Reset deletes the store (used for testing)
+func registerConn(conn *websocket.Conn, s *Session) {
+	sessionsByConn.Store(conn, s)
+}
+
+func unregisterConn(conn *websocket.Conn) {
+	sessionsByConn.Delete(conn)
+}
+
+// Reset clears the store (used for testing)
 func Reset() {
-	sessionStore = newStore()
+	sessionsByToken.Range(func(key, _ any) bool {
+		sessionsByToken.Delete(key)
+		return true
+	})
+	sessionsByConn.Range(func(key, _ any) bool {
+		sessionsByConn.Delete(key)
+		return true
+	})
+}
+
+// SetLastSeen is for testing - allows setting lastSeen on a session
+func (s *Session) SetLastSeen(t time.Time) {
+	s.lastSeen.Store(t.UnixNano())
+}
+
+// LastSeen returns the last activity time
+func (s *Session) LastSeen() time.Time {
+	return time.Unix(0, s.lastSeen.Load())
 }

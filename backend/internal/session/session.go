@@ -5,6 +5,7 @@ import (
 	"frop/internal/room"
 	"frop/models"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,11 +14,11 @@ import (
 
 // Session is created when two peers join a room
 type Session struct {
-	Token     string     // UUID - the "ticket stub"
-	PeerA     *room.Peer // current connection (can be nil if disconnected)
-	PeerB     *room.Peer // current connection (can be nil if disconnected)
+	Token     string
+	peerA     atomic.Pointer[room.Peer]
+	peerB     atomic.Pointer[room.Peer]
 	CreatedAt time.Time
-	LastSeen  time.Time // for expiration
+	lastSeen  atomic.Int64 // unix nanoseconds
 }
 
 func NewSession(peers []*room.Peer) *Session {
@@ -25,32 +26,32 @@ func NewSession(peers []*room.Peer) *Session {
 	now := time.Now()
 	s := &Session{
 		Token:     token,
-		PeerA:     peers[0],
-		PeerB:     peers[1],
 		CreatedAt: now,
-		LastSeen:  now,
 	}
-	sessionStore.sessionsByToken[token] = s
-	sessionStore.sessionsByConn[peers[0].Conn] = s
-	sessionStore.sessionsByConn[peers[1].Conn] = s
+	s.peerA.Store(peers[0])
+	s.peerB.Store(peers[1])
+	s.lastSeen.Store(now.UnixNano())
+
+	sessionsByToken.Store(token, s)
+	registerConn(peers[0].Conn, s)
+	registerConn(peers[1].Conn, s)
 	return s
 }
 
 func (s *Session) GetPeer(conn *websocket.Conn) (*room.Peer, bool) {
-	// Check if PeerA exists and matches the connection
-	if s.PeerA != nil && s.PeerA.Is(conn) {
-		// Return PeerB only if it's connected
-		if s.PeerB != nil {
-			return s.PeerB, true
+	peerA := s.peerA.Load()
+	peerB := s.peerB.Load()
+
+	if peerA != nil && peerA.Is(conn) {
+		if peerB != nil {
+			return peerB, true
 		}
 		return nil, false
 	}
 
-	// Check if PeerB exists and matches the connection
-	if s.PeerB != nil && s.PeerB.Is(conn) {
-		// Return PeerA only if it's connected
-		if s.PeerA != nil {
-			return s.PeerA, true
+	if peerB != nil && peerB.Is(conn) {
+		if peerA != nil {
+			return peerA, true
 		}
 		return nil, false
 	}
@@ -59,44 +60,63 @@ func (s *Session) GetPeer(conn *websocket.Conn) (*room.Peer, bool) {
 }
 
 func (s *Session) Notify() {
+	peerA := s.peerA.Load()
+	peerB := s.peerB.Load()
+
 	res := connectedResponse(s.Token)
-	s.PeerA.SendResponse(res)
-	s.PeerB.SendResponse(res)
+	if peerA != nil {
+		peerA.SendResponse(res)
+	}
+	if peerB != nil {
+		peerB.SendResponse(res)
+	}
 }
 
 func (s *Session) Reconnect(peer *room.Peer) error {
-	if s.PeerA == nil {
-		s.PeerA = peer
-	} else if s.PeerB == nil {
-		s.PeerB = peer
-	} else {
-		return fmt.Errorf("Both peers already connected")
+	// Try to claim an empty slot using CAS
+	if s.peerA.CompareAndSwap(nil, peer) {
+		registerConn(peer.Conn, s)
+		s.Notify()
+		return nil
 	}
-	sessionStore.sessionsByConn[peer.Conn] = s
-	s.Notify()
-
-	return nil
+	if s.peerB.CompareAndSwap(nil, peer) {
+		registerConn(peer.Conn, s)
+		s.Notify()
+		return nil
+	}
+	return fmt.Errorf("Both peers already connected")
 }
 
 func (s *Session) Disconnect(conn *websocket.Conn) {
-	delete(sessionStore.sessionsByConn, conn)
-	if s.PeerA != nil && s.PeerA.Is(conn) {
-		s.PeerA = nil
-		if s.PeerB != nil {
-			s.PeerB.SendResponse(&models.WsResponse{Type: models.PeerDisconnected})
-		}
-		slog.Info("PeerA disconnected from the session")
-	} else if s.PeerB != nil && s.PeerB.Is(conn) {
-		s.PeerB = nil
-		if s.PeerA != nil {
-			s.PeerA.SendResponse(&models.WsResponse{Type: models.PeerDisconnected})
-		}
-		slog.Info("PeerB disconnected from the session")
-	}
-}
+	unregisterConn(conn)
 
-func (s *Session) SetLastSeen(t time.Time) {
-	s.LastSeen = t
+	var peerToNotify *room.Peer
+	var logMsg string
+
+	// Try to clear peerA if it matches
+	peerA := s.peerA.Load()
+	if peerA != nil && peerA.Is(conn) {
+		if s.peerA.CompareAndSwap(peerA, nil) {
+			peerToNotify = s.peerB.Load()
+			logMsg = "PeerA disconnected from the session"
+		}
+	}
+
+	// Try to clear peerB if it matches
+	peerB := s.peerB.Load()
+	if peerB != nil && peerB.Is(conn) {
+		if s.peerB.CompareAndSwap(peerB, nil) {
+			peerToNotify = s.peerA.Load()
+			logMsg = "PeerB disconnected from the session"
+		}
+	}
+
+	if peerToNotify != nil {
+		peerToNotify.SendResponse(&models.WsResponse{Type: models.PeerDisconnected})
+	}
+	if logMsg != "" {
+		slog.Info(logMsg)
+	}
 }
 
 func connectedResponse(token string) *models.WsResponse {

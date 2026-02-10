@@ -166,7 +166,7 @@ func TestSessionLastSeenUpdated(t *testing.T) {
 
 	// Get initial LastSeen
 	sess, _ := session.GetSession(token)
-	initialLastSeen := sess.LastSeen
+	initialLastSeen := sess.LastSeen()
 
 	// Wait a bit
 	time.Sleep(100 * time.Millisecond)
@@ -180,7 +180,7 @@ func TestSessionLastSeenUpdated(t *testing.T) {
 
 	// LastSeen should be updated
 	sess, _ = session.GetSession(token)
-	if !sess.LastSeen.After(initialLastSeen) {
+	if !sess.LastSeen().After(initialLastSeen) {
 		t.Fatal("LastSeen should be updated after activity")
 	}
 

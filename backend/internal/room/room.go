@@ -4,62 +4,70 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 const lifespan = 30 * time.Minute
 const alphabets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 type Room struct {
-	Peers     []*Peer
+	peerA     atomic.Pointer[Peer]
+	peerB     atomic.Pointer[Peer]
 	Code      string
 	CreatedAt time.Time
 }
 
 // CreateRoom creates a new empty room, stores it, and returns the code
 func CreateRoom() string {
-	peers := make([]*Peer, 0, 2)
 	code := generateRandomCode()
 	room := &Room{
-		Peers:     peers,
 		Code:      code,
 		CreatedAt: time.Now(),
 	}
-	roomStore.rooms[code] = room
+	roomStore.Store(code, room)
 	slog.Info("Created new room", "code", code)
 	return code
 }
 
 func GetRoom(code string) (*Room, error) {
-	room, exists := roomStore.rooms[code]
+	v, exists := roomStore.Load(code)
 	if !exists {
 		return nil, ErrRoomNotFound
 	}
+	room := v.(*Room)
 	if time.Since(room.CreatedAt) > lifespan {
-		// lazy expiration: if expired, remove from store
-		roomStore.deleteRoom(code)
+		deleteRoom(code)
 		return nil, ErrRoomExpired
 	}
 	return room, nil
 }
 
-func JoinRoom(code string, conn *websocket.Conn) (*Room, error) {
-	room, exists := roomStore.rooms[code]
+// JoinRoom adds a peer to the room using atomic CAS.
+// Returns (peers, nil) when this peer completes the pair.
+// Returns (nil, nil) when this is the first peer.
+func JoinRoom(code string, peer *Peer) ([]*Peer, error) {
+	v, exists := roomStore.Load(code)
 	if !exists {
 		slog.Error("No room found", "code", code)
 		return nil, ErrRoomNotFound
 	}
+	room := v.(*Room)
 
-	if len(room.Peers) > 1 {
-		return nil, ErrRoomFull
+	// Try to claim first slot
+	if room.peerA.CompareAndSwap(nil, peer) {
+		slog.Info("Successfully joined room", "code", code)
+		return nil, nil
 	}
 
-	peer := &Peer{conn}
-	room.Peers = append(room.Peers, peer)
-	slog.Info("Successfully joined room", "code", code)
-	return room, nil
+	// Try to claim second slot
+	if room.peerB.CompareAndSwap(nil, peer) {
+		slog.Info("Successfully joined room", "code", code)
+		// Return both peers - peerA is guaranteed to be set
+		return []*Peer{room.peerA.Load(), peer}, nil
+	}
+
+	return nil, ErrRoomFull
 }
 
 func (r *Room) SetCreatedAt(t time.Time) {

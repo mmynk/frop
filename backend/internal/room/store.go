@@ -1,22 +1,17 @@
 package room
 
-var roomStore = newStore()
+import "sync"
 
-type store struct {
-	rooms map[string]*Room
-	// TODO: mutex for multiple goroutines
+var roomStore sync.Map // map[string]*Room
+
+func deleteRoom(code string) {
+	roomStore.Delete(code)
 }
 
-func newStore() *store {
-	rooms := make(map[string]*Room)
-	return &store{rooms}
-}
-
-func (s *store) deleteRoom(code string) {
-	delete(s.rooms, code)
-}
-
-// Reset deletes the store (used for testing)
+// Reset clears the store (used for testing)
 func Reset() {
-	roomStore = newStore()
+	roomStore.Range(func(key, _ any) bool {
+		roomStore.Delete(key)
+		return true
+	})
 }
