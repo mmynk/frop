@@ -10,8 +10,15 @@ import (
 	"frop/models"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+// Keepalive timing constants
+const (
+	pingInterval = 10 * time.Second // How often to send pings
+	pongWait     = 7 * time.Second  // How long to wait for pong before considering dead
 )
 
 var upgrader = websocket.Upgrader{
@@ -19,8 +26,9 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	conn  *websocket.Conn
-	relay *transfer.Relay
+	conn     *websocket.Conn
+	selfPeer *room.Peer // Our own Peer - used for pings and responses to this connection
+	relay    *transfer.Relay
 }
 
 func ServeHttp(w http.ResponseWriter, r *http.Request) {
@@ -30,10 +38,22 @@ func ServeHttp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set up keepalive: read deadline + pong handler
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	// Create Peer for this connection - used for pings/responses AND passed to JoinRoom
+	selfPeer := &room.Peer{Conn: conn}
+
 	client := &Client{
-		conn:  conn,
-		relay: transfer.NewRelay(conn),
+		conn:     conn,
+		selfPeer: selfPeer,
+		relay:    transfer.NewRelay(conn),
 	}
+	go client.startPinger()
 	go client.handle()
 }
 
@@ -59,7 +79,8 @@ func (c *Client) handle() {
 		}
 
 		if msgType == websocket.BinaryMessage {
-			c.relay.RelayFile(ctx, msg)
+			err := c.sendBinary(ctx, msg)
+			slog.Error("Failed to send chunk", "error", err)
 			continue
 		}
 
@@ -101,14 +122,14 @@ func (c *Client) processRequest(cancel context.CancelFunc, req *models.WsRequest
 }
 
 func (c *Client) handleJoin(req *models.WsRequest) error {
-	r, err := room.JoinRoom(req.Code, c.conn)
+	peers, err := room.JoinRoom(req.Code, c.selfPeer)
 	if err != nil {
 		return err
 	}
 
-	if len(r.Peers) == 2 {
+	if peers != nil {
 		// both peers have joined, create a new session
-		s := session.NewSession(r.Peers)
+		s := session.NewSession(peers)
 		s.Notify()
 	}
 
@@ -122,8 +143,7 @@ func (c *Client) handleReconnect(req *models.WsRequest) error {
 		slog.Error("No session found", "token", token)
 		return err
 	}
-	peer := &room.Peer{Conn: c.conn}
-	return s.Reconnect(peer)
+	return s.Reconnect(c.selfPeer)
 }
 
 func (c *Client) handleFraming(req *models.WsRequest) error {
@@ -144,7 +164,7 @@ func (c *Client) sendFailureResponse(err error) {
 		Type:  models.Failed,
 		Error: err.Error(),
 	}
-	c.conn.WriteJSON(res)
+	c.sendResponse(res)
 }
 
 func (c *Client) forwardToPeer(req *models.WsRequest) error {
@@ -153,5 +173,31 @@ func (c *Client) forwardToPeer(req *models.WsRequest) error {
 		return err
 	}
 	slog.Debug("Forwarding message to peer", "type", req.Type)
+	return c.forwardRequest(req, peer)
+}
+
+func (c *Client) forwardRequest(req *models.WsRequest, peer *room.Peer) error {
+	// Mutex is inside peer.SendRequest
 	return peer.SendRequest(req)
+}
+
+func (c *Client) sendResponse(res *models.WsResponse) error {
+	// Use selfPeer to write to our own connection (mutex protected)
+	return c.selfPeer.SendResponse(res)
+}
+
+func (c *Client) sendBinary(ctx context.Context, msg []byte) error {
+	// Mutex is inside peer.SendChunk (called by relay)
+	return c.relay.RelayFile(ctx, msg)
+}
+
+func (c *Client) startPinger() {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := c.selfPeer.SendPing(); err != nil {
+			return
+		}
+	}
 }
