@@ -39,9 +39,9 @@ func ServeHttp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set up keepalive: read deadline + pong handler
-	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetReadDeadline(time.Now().Add(pingInterval + pongWait))
 		return nil
 	})
 
@@ -79,8 +79,9 @@ func (c *Client) handle() {
 		}
 
 		if msgType == websocket.BinaryMessage {
-			err := c.sendBinary(ctx, msg)
-			slog.Error("Failed to send chunk", "error", err)
+			if err := c.sendBinary(ctx, msg); err != nil {
+				slog.Error("Failed to send chunk", "error", err)
+			}
 			continue
 		}
 
