@@ -116,6 +116,7 @@ header h1 {
 
 .join-form input {
     flex: 1;
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -421,6 +422,13 @@ header h1 {
 .toast.visible {
     opacity: 1;
     transform: translateY(0);
+}
+
+/* Mobile */
+@media (max-width: 400px) {
+    .container {
+        padding: 1.25rem;
+    }
 }
 
 /* Footer */
