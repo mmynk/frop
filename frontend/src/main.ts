@@ -699,6 +699,27 @@ function cancelIncomingTransfer(): void {
 }
 
 // =============================================================================
+// Clipboard Paste (Images)
+// =============================================================================
+
+function handlePasteEvent(e: ClipboardEvent): void {
+  if (state.view !== "connected" || !state.ws) return;
+  if (isInputFocused()) return;
+
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (!item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (!file) continue;
+
+    queueFiles([file]);
+    break; // Only send the first image — items may include duplicate formats
+  }
+}
+
+// =============================================================================
 // Clipboard Sharing
 // =============================================================================
 
@@ -921,6 +942,9 @@ function setupEventListeners(): void {
 
   // Clipboard
   elements.sendClipboardBtn.addEventListener("click", sendClipboard);
+
+  // Paste event to send images from clipboard when connected
+  document.addEventListener("paste", handlePasteEvent);
 
   // Ctrl+V to send clipboard when connected
   document.addEventListener("keydown", (e) => {

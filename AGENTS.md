@@ -111,6 +111,8 @@ bun run watch                   # Build on change
 
 This split allows the human to learn Go by implementing the backend while Claude handles the frontend implementation.
 
+**Learning mode (when active):** Only request human contributions for backend (Go) code. Claude implements all frontend TypeScript independently.
+
 **Test-Driven Development (TDD):**
 For new backend features, Claude writes integration tests first that define the expected behavior. Human then implements until tests pass. This approach:
 - Provides clear "done" criteria
