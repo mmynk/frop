@@ -764,9 +764,7 @@ function addClipboardSentNotification(content: string): void {
     <div class="clipboard-content">${escapeHtml(truncateText(content, 100))}</div>
   `;
   elements.clipboardList.prepend(item);
-
-  // Auto-remove after 5 seconds
-  setTimeout(() => item.remove(), 5000);
+  trimList(elements.clipboardList, 10);
 }
 
 function addClipboardReceivedNotification(content: string): void {
@@ -786,7 +784,10 @@ function addClipboardReceivedNotification(content: string): void {
       await navigator.clipboard.writeText(content);
       copyBtn.textContent = "Copied!";
       copyBtn.disabled = true;
-      setTimeout(() => item.remove(), 1500);
+      setTimeout(() => {
+        copyBtn.textContent = "Copy";
+        copyBtn.disabled = false;
+      }, 1500);
     } catch (err) {
       console.error("[Clipboard] Failed to copy:", err);
       copyBtn.textContent = "Failed";
@@ -794,11 +795,18 @@ function addClipboardReceivedNotification(content: string): void {
   });
 
   elements.clipboardList.prepend(item);
+  trimList(elements.clipboardList, 10);
 }
 
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + "…";
+}
+
+function trimList(list: HTMLElement, max: number): void {
+  while (list.children.length > max) {
+    list.lastElementChild?.remove();
+  }
 }
 
 function isInputFocused(): boolean {
@@ -846,6 +854,7 @@ function addTransferItem(
   });
 
   elements.transferList.appendChild(item);
+  trimList(elements.transferList, 10);
   return item;
 }
 
