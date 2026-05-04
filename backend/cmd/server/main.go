@@ -9,6 +9,7 @@ import (
 	"frop/internal/routes"
 
 	"github.com/lmittmann/tint"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -19,7 +20,10 @@ func main() {
 		port = "8080"
 	}
 
+	metricsToken := os.Getenv("METRICS_TOKEN")
+
 	mux := http.NewServeMux()
+	mux.Handle("/metrics", flyNetworkOnly(metricsToken, promhttp.Handler()))
 	routes.Setup(mux)
 	mux.Handle("/", http.FileServer(http.Dir("../frontend")))
 

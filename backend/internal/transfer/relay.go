@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"frop/internal/metrics"
 	"frop/internal/session"
 	"log/slog"
 
@@ -33,5 +34,6 @@ func (r *Relay) relay(chunk []byte) error {
 		return err
 	}
 	slog.Debug("Sending chunk to peer", "size", len(chunk))
+	metrics.BytesRelayed.Add(float64(len(chunk)))
 	return peer.SendChunk(chunk)
 }

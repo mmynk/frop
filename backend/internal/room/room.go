@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"sync/atomic"
 	"time"
+
+	"frop/internal/metrics"
 )
 
 const lifespan = 30 * time.Minute
@@ -26,6 +28,7 @@ func CreateRoom() string {
 		CreatedAt: time.Now(),
 	}
 	roomStore.Store(code, room)
+	metrics.RoomsCreated.Inc()
 	slog.Info("Created new room", "code", code)
 	return code
 }

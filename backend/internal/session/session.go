@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"frop/internal/metrics"
 	"frop/internal/room"
 	"frop/models"
 	"log/slog"
@@ -21,6 +22,28 @@ type Session struct {
 	lastSeen  atomic.Int64 // unix nanoseconds
 }
 
+type sessionEvent int
+
+const (
+	eventCreated      sessionEvent = iota // new session, both peers joined
+	eventReconnected                      // a peer reconnected to an existing session
+	eventDisconnected                     // a peer left
+)
+
+// trackSessionMetric updates Prometheus counters and gauges on session lifecycle events.
+func trackSessionMetric(e sessionEvent) {
+	switch e {
+	case eventCreated:
+		metrics.SessionsCreated.Inc()
+		metrics.SessionsActive.Inc()
+	case eventReconnected:
+		metrics.SessionsActive.Inc()
+		metrics.Reconnections.Inc()
+	case eventDisconnected:
+		metrics.SessionsActive.Dec()
+	}
+}
+
 func NewSession(peers []*room.Peer) *Session {
 	token := uuid.NewString()
 	now := time.Now()
@@ -35,6 +58,7 @@ func NewSession(peers []*room.Peer) *Session {
 	sessionsByToken.Store(token, s)
 	registerConn(peers[0].Conn, s)
 	registerConn(peers[1].Conn, s)
+	trackSessionMetric(eventCreated)
 	return s
 }
 
@@ -77,11 +101,13 @@ func (s *Session) Reconnect(peer *room.Peer) error {
 	if s.peerA.CompareAndSwap(nil, peer) {
 		registerConn(peer.Conn, s)
 		s.Notify()
+		trackSessionMetric(eventReconnected)
 		return nil
 	}
 	if s.peerB.CompareAndSwap(nil, peer) {
 		registerConn(peer.Conn, s)
 		s.Notify()
+		trackSessionMetric(eventReconnected)
 		return nil
 	}
 	return fmt.Errorf("Both peers already connected")
@@ -116,6 +142,7 @@ func (s *Session) Disconnect(conn *websocket.Conn) {
 	}
 	if logMsg != "" {
 		slog.Info(logMsg)
+		trackSessionMetric(eventDisconnected)
 	}
 }
 

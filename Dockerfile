@@ -12,7 +12,7 @@ WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ .
-RUN CGO_ENABLED=0 GOOS=linux go build -o frop cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o frop ./cmd/server/
 
 # --- Runtime ---
 FROM alpine:3.21
