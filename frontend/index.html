@@ -112,21 +112,19 @@
         <!-- Connected State: Ready to transfer files -->
         <div id="connected" class="view">
             <div class="status-bar">
-                <span class="status-dot connected"></span>
-                <span>Connected</span>
+                <span class="dot" aria-hidden="true"></span><strong>Connected.</strong>
+                <span class="right" id="statusRight"></span>
             </div>
 
             <div id="dropzone" class="dropzone">
                 <input type="file" id="fileInput" multiple hidden>
                 <input type="file" id="folderInput" webkitdirectory hidden>
-                <div class="dropzone-content">
-                    <p>Drag & drop files here</p>
-                    <p class="hint">or</p>
-                    <div class="dropzone-buttons">
-                        <button id="selectFiles" class="btn">Select Files</button>
-                        <button id="selectFolder" class="btn">Select Folder</button>
-                        <button id="sendClipboard" class="btn clipboard-btn" title="Send clipboard (Ctrl+V)">📋 Clipboard</button>
-                    </div>
+                <p class="main">Drop anything here.</p>
+                <p class="sub">Or pick from your device.</p>
+                <div class="dropzone-buttons">
+                    <button id="selectFiles" class="btn">Files</button>
+                    <button id="selectFolder" class="btn">Folder</button>
+                    <button id="sendClipboard" class="btn" title="Send clipboard (Ctrl+V)">Clipboard</button>
                 </div>
             </div>
 

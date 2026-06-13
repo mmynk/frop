@@ -112,6 +112,7 @@ const elements = {
   sendClipboardBtn: document.getElementById("sendClipboard")!,
   transferList: document.getElementById("transferList")!,
   clipboardList: document.getElementById("clipboardList")!,
+  statusRight: document.getElementById("statusRight")!,
 
   // Disconnected
   backToLandingBtn: document.getElementById("backToLanding")!,
@@ -135,8 +136,48 @@ function showView(view: View): void {
   const viewElement = elements[view];
   viewElement.classList.add("active");
 
+  if (view === "connected") {
+    startUptime();
+  } else {
+    stopUptime();
+  }
+
   state.view = view;
   console.log(`[View] Switched to: ${view}`);
+}
+
+// =============================================================================
+// Connected — uptime timer
+// =============================================================================
+
+let connectedAt: number | null = null;
+let uptimeInterval: number | null = null;
+
+function updateUptime(): void {
+  if (connectedAt === null) return;
+  const secs = Math.floor((Date.now() - connectedAt) / 1000);
+  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
+  const code = state.roomCode ?? "------";
+  elements.statusRight.textContent = `${code} · ${mm}:${ss}`;
+}
+
+function startUptime(): void {
+  connectedAt = Date.now();
+  updateUptime();
+  if (uptimeInterval !== null) {
+    clearInterval(uptimeInterval);
+  }
+  uptimeInterval = window.setInterval(updateUptime, 1000);
+}
+
+function stopUptime(): void {
+  if (uptimeInterval !== null) {
+    clearInterval(uptimeInterval);
+    uptimeInterval = null;
+  }
+  connectedAt = null;
+  elements.statusRight.textContent = "";
 }
 
 // =============================================================================
@@ -545,7 +586,7 @@ async function sendFile(file: File): Promise<void> {
     markCancelled(element);
   } else {
     sendMessage({ type: "file_end", name });
-    markComplete(element);
+    markComplete(element, file.size);
     console.log(`[Transfer] Sent: ${name}`);
   }
 }
@@ -638,7 +679,7 @@ async function handleFileEnd(): Promise<void> {
     downloadBlob(blob, incomingTransfer.name);
   }
 
-  markComplete(incomingTransfer.element);
+  markComplete(incomingTransfer.element, incomingTransfer.size);
   incomingTransfer = null;
 }
 
@@ -680,35 +721,6 @@ async function handleFileCancel(msg: WsMessage): Promise<void> {
     markCancelled(incomingTransfer.element);
     incomingTransfer = null;
   }
-}
-
-function cancelOutgoingTransfer(): void {
-  if (!currentOutgoingSend) {
-    console.warn("[Transfer] No outgoing transfer to cancel");
-    return;
-  }
-  console.log(`[Transfer] Cancelling outgoing: ${currentOutgoingSend.name}`);
-  cancelledOutgoing.add(currentOutgoingSend.name);
-}
-
-function cancelIncomingTransfer(): void {
-  if (!incomingTransfer) {
-    console.warn("[Transfer] No incoming transfer to cancel");
-    return;
-  }
-  const name = incomingTransfer.name;
-  console.log(`[Transfer] Rejecting incoming: ${name}`);
-
-  // Send cancel to peer so they stop sending
-  sendMessage({ type: "file_cancel", name, reason: "user_rejected" });
-
-  // Close writable stream if open
-  if (incomingTransfer.writable) {
-    incomingTransfer.writable.abort().catch(() => {});
-  }
-
-  markCancelled(incomingTransfer.element);
-  incomingTransfer = null;
 }
 
 // =============================================================================
@@ -817,47 +829,41 @@ function handleClipboardReceived(msg: WsMessage): void {
 }
 
 function addClipboardSentNotification(content: string): void {
-  const item = document.createElement("div");
-  item.className = "clipboard-item sent";
-  item.innerHTML = `
-    <div class="clipboard-header">
-      <span class="clipboard-label">↑ Clipboard sent</span>
-    </div>
-    <div class="clipboard-content">${escapeHtml(truncateText(content, 100))}</div>
-  `;
+  const item = buildClipItem("clipboard sent", "just now", content, 100);
+  item.classList.add("sent");
   elements.clipboardList.prepend(item);
   trimList(elements.clipboardList, 10);
 }
 
 function addClipboardReceivedNotification(content: string): void {
-  const item = document.createElement("div");
-  item.className = "clipboard-item received";
-  item.innerHTML = `
-    <div class="clipboard-header">
-      <span class="clipboard-label">↓ Clipboard received</span>
-      <button class="copy-btn">Copy</button>
-    </div>
-    <div class="clipboard-content">${escapeHtml(truncateText(content, 200))}</div>
-  `;
-
-  const copyBtn = item.querySelector<HTMLButtonElement>(".copy-btn")!;
-  copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      copyBtn.textContent = "Copied!";
-      copyBtn.disabled = true;
-      setTimeout(() => {
-        copyBtn.textContent = "Copy";
-        copyBtn.disabled = false;
-      }, 1500);
-    } catch (err) {
-      console.error("[Clipboard] Failed to copy:", err);
-      copyBtn.textContent = "Failed";
-    }
-  });
-
+  const item = buildClipItem("clipboard received", "just now", content, 200);
   elements.clipboardList.prepend(item);
   trimList(elements.clipboardList, 10);
+}
+
+function buildClipItem(
+  label: string,
+  right: string,
+  content: string,
+  maxLen: number,
+): HTMLElement {
+  const item = document.createElement("div");
+  item.className = "clip-item";
+
+  const labelRow = document.createElement("div");
+  labelRow.className = "clip-label";
+  const left = document.createElement("span");
+  left.textContent = label;
+  const rightEl = document.createElement("span");
+  rightEl.textContent = right;
+  labelRow.append(left, rightEl);
+
+  const text = document.createElement("div");
+  text.className = "clip-text";
+  text.textContent = truncateText(content, maxLen);
+
+  item.append(labelRow, text);
+  return item;
 }
 
 function truncateText(text: string, maxLength: number): string {
@@ -892,28 +898,27 @@ function addTransferItem(
   const item = document.createElement("div");
   item.className = "transfer-item";
   item.dataset.direction = direction;
-  const arrow = direction === "send" ? "↑" : "↓";
-  item.innerHTML = `
-    <div class="transfer-header">
-      <div class="name">${arrow} ${escapeHtml(name)}</div>
-      <button class="cancel-btn" title="Cancel transfer">×</button>
-    </div>
-    <div class="meta">
-      <span>${formatSize(size)}</span>
-      <span class="percent">0%</span>
-    </div>
-    <div class="progress-bar"><div class="fill" style="width: 0%"></div></div>
-  `;
 
-  // Wire up cancel button
-  const cancelBtn = item.querySelector<HTMLButtonElement>(".cancel-btn")!;
-  cancelBtn.addEventListener("click", () => {
-    if (direction === "send") {
-      cancelOutgoingTransfer();
-    } else {
-      cancelIncomingTransfer();
-    }
-  });
+  const head = document.createElement("div");
+  head.className = "transfer-head";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "transfer-name";
+  nameEl.textContent = name;
+
+  const metaEl = document.createElement("span");
+  metaEl.className = "transfer-meta";
+  metaEl.textContent = formatSize(size);
+
+  head.append(nameEl, metaEl);
+
+  const track = document.createElement("div");
+  track.className = "progress-track";
+  const fill = document.createElement("div");
+  fill.className = "progress-fill";
+  track.appendChild(fill);
+
+  item.append(head, track);
 
   elements.transferList.appendChild(item);
   trimList(elements.transferList, 10);
@@ -925,38 +930,29 @@ function updateProgress(
   received: number,
   total: number,
 ): void {
-  const pct = Math.min(100, Math.round((received / total) * 100));
-  element.querySelector<HTMLElement>(".fill")!.style.width = `${pct}%`;
-  element.querySelector(".percent")!.textContent = `${pct}%`;
+  const pct = total > 0 ? Math.min(100, (received / total) * 100) : 0;
+  element.querySelector<HTMLElement>(".progress-fill")!.style.width = `${pct}%`;
+  element.querySelector<HTMLElement>(".transfer-meta")!.textContent =
+    `${formatSize(received)} / ${formatSize(total)}`;
 }
 
-function markComplete(element: HTMLElement): void {
-  element.classList.add("complete");
-  element.querySelector<HTMLElement>(".fill")!.style.width = "100%";
-  element.querySelector(".percent")!.textContent = "Done";
-  // Hide cancel button
-  const cancelBtn = element.querySelector<HTMLElement>(".cancel-btn");
-  if (cancelBtn) cancelBtn.style.display = "none";
+function markComplete(element: HTMLElement, total: number): void {
+  element.classList.add("done");
+  element.querySelector<HTMLElement>(".progress-fill")!.style.width = "100%";
+  element.querySelector<HTMLElement>(".transfer-meta")!.textContent =
+    formatSize(total);
 }
 
 function markCancelled(element: HTMLElement): void {
   element.classList.add("cancelled");
-  element.querySelector(".percent")!.textContent = "Cancelled";
-  // Hide cancel button
-  const cancelBtn = element.querySelector<HTMLElement>(".cancel-btn");
-  if (cancelBtn) cancelBtn.style.display = "none";
+  element.querySelector<HTMLElement>(".transfer-meta")!.textContent =
+    "cancelled";
 }
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
 }
 
 // =============================================================================
