@@ -113,7 +113,7 @@
         <!-- Connected State: Ready to transfer files -->
         <div id="connected" class="view">
             <div class="status-bar">
-                <span class="dot" aria-hidden="true"></span><strong>Connected.</strong>
+                <span id="statusDot" class="dot" aria-hidden="true"></span><strong id="statusText">Connected.</strong>
                 <span class="right" id="statusRight"></span>
             </div>
 
@@ -127,6 +127,11 @@
                     <button id="selectFolder" class="btn">Folder</button>
                     <button id="sendClipboard" class="btn" title="Send clipboard (Ctrl+V)">Clipboard</button>
                 </div>
+            </div>
+
+            <div id="disconnectedBanner" class="disconnected-banner" hidden>
+                <p class="disconnected-msg">The other end hung up. Your history stays.</p>
+                <button id="startOverFromConnected" class="btn">Start over</button>
             </div>
 
             <div id="transferList" class="transfer-list">

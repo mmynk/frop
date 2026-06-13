@@ -105,7 +105,11 @@ const elements = {
   cancelRoomBtn: document.getElementById("cancelRoom")!,
 
   // Connected
+  statusDot: document.getElementById("statusDot")!,
+  statusText: document.getElementById("statusText")!,
   dropzone: document.getElementById("dropzone")!,
+  disconnectedBanner: document.getElementById("disconnectedBanner")!,
+  startOverFromConnectedBtn: document.getElementById("startOverFromConnected")!,
   fileInput: document.getElementById("fileInput") as HTMLInputElement,
   folderInput: document.getElementById("folderInput") as HTMLInputElement,
   selectFilesBtn: document.getElementById("selectFiles")!,
@@ -145,6 +149,38 @@ function showView(view: View): void {
 
   state.view = view;
   console.log(`[View] Switched to: ${view}`);
+}
+
+function setPeerConnected(connected: boolean): void {
+  elements.statusDot.classList.toggle("disconnected", !connected);
+  elements.statusText.textContent = connected ? "Connected." : "Disconnected.";
+  elements.dropzone.hidden = !connected;
+  elements.disconnectedBanner.hidden = connected;
+  // Freeze the uptime when the peer is gone. showView("connected") restarts
+  // it on the next pairing.
+  if (!connected) {
+    stopUptime();
+  }
+}
+
+// After pairing, preserve history by marking the connected view disconnected
+// in place. Before pairing, there's nothing to preserve — use the dedicated view.
+function handleDisconnect(): void {
+  if (state.view === "connected") {
+    setPeerConnected(false);
+  } else if (state.view === "waiting") {
+    showView("disconnected");
+  }
+}
+
+function setSessionTokenInUrl(token: string | null): void {
+  const url = new URL(window.location.href);
+  if (token) {
+    url.searchParams.set("s", token);
+  } else {
+    url.searchParams.delete("s");
+  }
+  window.history.replaceState({}, "", url.toString());
 }
 
 // =============================================================================
@@ -244,11 +280,7 @@ function connectWebSocket(): WebSocket {
   ws.onclose = () => {
     console.log("[WS] Disconnected");
     state.ws = null;
-
-    // If we were connected, show disconnected view
-    if (state.view === "connected" || state.view === "waiting") {
-      showView("disconnected");
-    }
+    handleDisconnect();
   };
 
   state.ws = ws;
@@ -270,35 +302,27 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
       console.log("[WS] Paired with peer! Token:", msg.sessionToken);
       state.sessionToken = msg.sessionToken ?? null;
 
-      // Update browser URL with session token for easy reconnection
       if (state.sessionToken) {
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.set("s", state.sessionToken);
-        window.history.replaceState({}, "", newUrl.toString());
-        console.log("[URL] Updated with session token");
+        setSessionTokenInUrl(state.sessionToken);
       }
 
+      setPeerConnected(true);
       showView("connected");
       break;
 
     case "failed":
       console.error("[WS] Operation failed:", msg.error);
-
-      // Show user-friendly error message
       showError(getErrorMessage(msg.error ?? ""));
 
-      // Clear session token from state and URL
       state.sessionToken = null;
-      const urlWithoutToken = new URL(window.location.href);
-      urlWithoutToken.searchParams.delete("s");
-      window.history.replaceState({}, "", urlWithoutToken.toString());
+      setSessionTokenInUrl(null);
 
       showView("landing");
       break;
 
     case "peer_disconnected":
       console.log("[WS] Peer disconnected");
-      showView("disconnected");
+      handleDisconnect();
       break;
 
     case "file_start":
@@ -422,6 +446,14 @@ function backToLanding(): void {
   if (state.ws) {
     state.ws.close();
   }
+  // Drop in-flight transfer state so a late file_end can't trigger a phantom
+  // download or write into a list we just cleared.
+  incomingTransfer = null;
+  sendQueue = [];
+  elements.transferList.innerHTML = "";
+  elements.clipboardList.innerHTML = "";
+  setPeerConnected(true);
+  setSessionTokenInUrl(null);
   showView("landing");
 }
 
@@ -1016,6 +1048,7 @@ function setupEventListeners(): void {
 
   // Disconnected view
   elements.backToLandingBtn.addEventListener("click", backToLanding);
+  elements.startOverFromConnectedBtn.addEventListener("click", backToLanding);
 
   // Connected view - file inputs
   elements.selectFilesBtn.addEventListener("click", () => {

@@ -547,6 +547,24 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.status-bar .dot.disconnected {
+    background: var(--danger);
+    box-shadow: none;
+    animation: none;
+}
+
+/* Disconnected banner (shown inside #connected view to preserve history).
+   Borrows the dropzone chassis so it sits in the same shape that was just
+   vacated, with disconnected-msg styling matching the dedicated view. */
+.disconnected-banner {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--surface-sunken);
+    padding: 1.75rem 1.5rem;
+    text-align: center;
+    margin-bottom: 1.25rem;
+}
+
 /* Dropzone */
 .dropzone {
     border: 1.5px dashed var(--border-strong);
@@ -688,7 +706,7 @@ body {
     text-align: center;
 }
 
-#disconnected .disconnected-msg {
+.disconnected-msg {
     font-family: 'Fraunces', serif;
     font-style: italic;
     font-variation-settings: "opsz" 24, "SOFT" 80;
@@ -697,7 +715,8 @@ body {
     margin: 0.5rem 0 1.75rem;
 }
 
-#disconnected .btn {
+#disconnected .btn,
+.disconnected-banner .btn {
     width: 100%;
 }
 
