@@ -1017,6 +1017,10 @@ function init(): void {
   } else {
     // Normal flow: show landing page
     showView("landing");
+    // Auto-focus code input on desktop; skip on touch devices to avoid keyboard pop-up
+    if (!window.matchMedia("(pointer: coarse)").matches) {
+      elements.codeInput.focus();
+    }
   }
 
   console.log("[Frop] Ready!");
