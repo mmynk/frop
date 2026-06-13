@@ -969,6 +969,10 @@ body {
         right: 0.5rem;
     }
 
+    .footer span {
+        display: none;
+    }
+
     .status-bar {
         font-size: 11px;
     }
