@@ -190,3 +190,39 @@ After a few attempts, called it. The sending side works great. Receiver-side fol
 ### Lesson
 
 Sometimes you fix one bug and discover a bigger one hiding behind it. Know when to ship what works.
+
+## 2026-06-12 — Vintage Instrument 🎛️
+
+The app worked. It just looked like every other dark-mode SaaS — indigo primary, slate everywhere, no opinion. Time to give it a face.
+
+### The Direction
+
+Three mockups explored (modem, minimal, playful), then `scratch/mockups/combined.html` locked the direction: **vintage scientific instrument** — Tektronix oscilloscope, Hammond organ. Warm wood and brass paper, phosphor-green readout, amber warning lamp.
+
+Locked palette:
+- **Light**: warm paper bg (`#F4EFE3`), cream surface, warm-tan borders. Never slate.
+- **Dark**: green-black `#0E1410` — *still* never slate.
+- **Accent**: phosphor green (`#00A85F` / `#2FDC8B`) — "system alive; transfer complete."
+- **Secondary**: amber (`#D98F1C` / `#F0B854`) — "data in motion." Reserved for the progress-bar gradient only.
+
+Three fonts, three jobs, no overlap:
+- **Fraunces** (with the `WONK` axis on) — the *soul*. Wordmark, headings, italic microcopy.
+- **JetBrains Mono** — the *instrument*. Code, sizes, status bar, all readouts.
+- **Inter Tight** — the *chrome*. Body, buttons, lists.
+
+One easing curve (`cubic-bezier(0.32, 0.72, 0, 1)`), two durations (120ms / 180ms), no springs, no overshoots. Radius caps at 10px — `rounded-2xl` is the cliché we're avoiding.
+
+### Four Sessions
+
+Plan from `scratch/ui-revamp-plan.md`. Each session was small and shippable on its own.
+
+1. **Foundation** — tokens, fonts, theme system (`light`/`dark`/`system`, persisted), wordmark with the green stop, `.screen` chassis with the LED-strip top accent.
+2. **Hero states** — landing CTA, the six-`<span>` room code with corner ticks, alternating colors, staggered drop-in. Italic "Share this code." preamble. Pulsing-dot "They're one tap away."
+3. **Connected** — status bar with live `MM:SS` uptime and pulsing dot. Dropzone that lifts and turns green on hover. Transfer rows with the gradient progress (green → amber) that snaps to solid green + `✓` on complete. Clipboard pills with the 3px green left border.
+4. **Polish** — microcopy pass (no "Oops!", no "😅", direct cancel confirmations), mobile passes at 480/360, footer chip, perf check.
+
+### What I'll Remember
+
+The amber-only-in-the-progress-bar rule did more work than expected. By refusing to sprinkle amber anywhere else, the moment progress actually moves becomes the only place the warning lamp lights up — a real signal instead of decoration.
+
+Also: the microcopy pass was where the design clicked from "looks nice" to "feels considered." A perfectly-tokenized UI with a `"Please enter a valid code."` error still reads like Bootstrap. `"Codes are six characters."` reads like the instrument is talking back.

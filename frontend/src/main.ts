@@ -54,10 +54,10 @@ const MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1 MB - max clipboard text size
 
 // Error code to user-friendly message mapping
 const ERROR_MESSAGES: Record<string, string> = {
-  "room not found": "Room not found. Check the code and try again.",
-  "room full": "Room is full. Only 2 people can connect.",
-  "session expired": "Session expired. Please start over.",
-  "invalid request": "Something went wrong. Please try again.",
+  "room not found": "No room with that code.",
+  "room full": "That room already has two people.",
+  "session expired": "Session ended. Start a new room.",
+  "invalid request": "Something went sideways. Try again.",
 };
 
 // =============================================================================
@@ -101,6 +101,7 @@ const elements = {
 
   // Waiting
   roomCodeDisplay: document.getElementById("roomCode")!,
+  codeHint: document.getElementById("codeHint")!,
   cancelRoomBtn: document.getElementById("cancelRoom")!,
 
   // Connected
@@ -185,7 +186,7 @@ function stopUptime(): void {
 // =============================================================================
 
 function getErrorMessage(code: string): string {
-  return ERROR_MESSAGES[code] ?? code ?? "An error occurred.";
+  return ERROR_MESSAGES[code] ?? code ?? "Something went sideways.";
 }
 
 function showError(message: string): void {
@@ -325,6 +326,8 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
 // Room Actions
 // =============================================================================
 
+let copyHintResetTimer: number | null = null;
+
 function renderRoomCode(code: string): void {
   const el = elements.roomCodeDisplay;
   el.replaceChildren(
@@ -334,6 +337,29 @@ function renderRoomCode(code: string): void {
       return span;
     }),
   );
+  el.onclick = () => copyRoomCode(code);
+  el.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      copyRoomCode(code);
+    }
+  };
+}
+
+async function copyRoomCode(code: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    return; // user-select: all already lets the user Ctrl+C manually
+  }
+  const el = elements.roomCodeDisplay;
+  el.classList.add("copied");
+  elements.codeHint.textContent = "Copied.";
+  if (copyHintResetTimer !== null) clearTimeout(copyHintResetTimer);
+  copyHintResetTimer = window.setTimeout(() => {
+    el.classList.remove("copied");
+    elements.codeHint.textContent = "Click to copy.";
+  }, 1200);
 }
 
 async function createRoom(): Promise<void> {
@@ -365,7 +391,7 @@ async function createRoom(): Promise<void> {
 function joinRoom(code: string): void {
   if (!code || code.length !== 6) {
     console.error("[Room] Invalid code:", code);
-    showError("Please enter a 6-character room code.");
+    showError("Codes are six characters.");
     elements.codeInput.focus();
     return;
   }
@@ -758,7 +784,7 @@ async function sendClipboard(): Promise<void> {
 
     if (text.length > MAX_CLIPBOARD_SIZE) {
       console.warn(`[Clipboard] Too large: ${text.length} bytes (max ${MAX_CLIPBOARD_SIZE})`);
-      showError(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB.`);
+      showError(clipboardTooBigMessage(text.length));
       return;
     }
 
@@ -778,11 +804,11 @@ function showClipboardFallback(): void {
   const modal = document.createElement("div");
   modal.className = "clipboard-modal";
   modal.innerHTML = `
-    <p class="clipboard-modal-title">Paste your clipboard text</p>
-    <textarea class="clipboard-modal-textarea" placeholder="Paste here (Ctrl+V / ⌘V)..." rows="4"></textarea>
-    <p class="clipboard-modal-hint">Ctrl+Enter to send</p>
+    <p class="clipboard-modal-title">Paste it here.</p>
+    <textarea class="clipboard-modal-textarea" placeholder="Ctrl+V or ⌘V" rows="4"></textarea>
+    <p class="clipboard-modal-hint">Ctrl+Enter to send.</p>
     <div class="clipboard-modal-actions">
-      <button class="btn secondary clipboard-modal-cancel">Cancel</button>
+      <button class="btn clipboard-modal-cancel">Cancel</button>
       <button class="btn primary clipboard-modal-send">Send</button>
     </div>
   `;
@@ -805,7 +831,7 @@ function showClipboardFallback(): void {
     if (!text) return;
 
     if (text.length > MAX_CLIPBOARD_SIZE) {
-      showError(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB.`);
+      showError(clipboardTooBigMessage(text.length));
       return;
     }
 
@@ -953,6 +979,10 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function clipboardTooBigMessage(size: number): string {
+  return `Clipboard is too big (${formatSize(size)}). ${formatSize(MAX_CLIPBOARD_SIZE)} max.`;
 }
 
 // =============================================================================

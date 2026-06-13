@@ -2,9 +2,9 @@
 
 This document tracks implementation progress to help maintain context across sessions.
 
-## Current Status: v1 Complete! 🎉
+## Current Status: v1 Complete + UI Revamp Shipped 🎉
 
-Last updated: 2026-02-08
+Last updated: 2026-06-12
 
 ---
 
@@ -277,7 +277,15 @@ None currently! 🎉
   - Error response on normal WebSocket close
 - **Milestone 3 complete — v1 shipped!**
 
-### 2026-02-08 (Session 9) - Folder Drag-and-Drop Fix
+### 2026-06-12 (Sessions 10–13) - UI Revamp: vintage instrument
+Four-session visual overhaul driven by `scratch/ui-revamp-plan.md`. No backend changes; vanilla TS + esbuild preserved.
+
+- **Session 10 — Foundation**: New palette tokens (warm paper, phosphor green, amber), three-font system (Fraunces / JetBrains Mono / Inter Tight), `data-theme` system with `light`/`dark`/`system` cycle persisted to `localStorage`. New wordmark, `.screen` chassis with LED-strip top accent.
+- **Session 11 — Hero states**: Landing CTA, decimal-leading-zero feature list, `▸` bullets, italic separator. Room code rendered as six `<span>`s with corner ticks, alternating green/ink colors, staggered drop-in animation (60ms × 6). Waiting view: italic preamble + pulsing dot.
+- **Session 12 — Connected**: Status bar with live `MM:SS` uptime, pulsing dot, italic "Connected." Dropzone hover/dragover lifts and turns green. Transfer rows use 4px gradient progress (green → amber), turn solid green + `✓` on completion. Clipboard pills get a 3px green left border. Toast restyled (no shadow, Fraunces italic).
+- **Session 13 — Polish**: Microcopy pass (errors, disconnected view, clipboard fallback modal — all rewritten in the considered voice). Mobile passes at 480/360 (tighter card padding, smaller code font, smaller dropzone). Footer restyled as a hairline-bordered mono-caps chip (no more rgba(255,255,255)). Clipboard modal aligned with the new palette/radii.
+
+Design system documented in `MEMORY.md`.
 - **Bug**: Drag-and-drop folder onto dropzone didn't work (only "Select Folder" button worked)
 - **Root cause**: `e.dataTransfer.files` returns folder as single unreadable File, not its contents
 - **Claude**: Implemented `webkitGetAsEntry()` API to detect and traverse dropped folders
