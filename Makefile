@@ -18,11 +18,11 @@ frontend:
 
 # Build backend only
 backend:
-	cd backend && go build -o frop cmd/server/main.go
+	cd backend && go build -o frop ./cmd/server
 
 # Run backend locally (without container)
 run: frontend
-	cd backend && go run cmd/server/main.go
+	cd backend && go run ./cmd/server
 
 # Stop and remove container
 clean:
