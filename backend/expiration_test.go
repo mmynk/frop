@@ -122,14 +122,18 @@ func TestSessionExpiration(t *testing.T) {
 		t.Fatal("Session should exist after peers disconnect")
 	}
 
-	// Set LastSeen to 15 minutes ago
+	// Set LastSeen comfortably past the 15-minute lifespan.
+	// Using exactly -15min is flaky: time.Now()'s wall clock has coarser
+	// resolution than the monotonic clock, and SetLastSeen stores only the
+	// wall-clock nanoseconds (via UnixNano), so time.Since can return exactly
+	// 15min and fail the strict `>` check.
 	s, err := session.GetSession(token)
 	if err != nil {
 		t.Fatalf("Session not found")
 	}
-	s.SetLastSeen(time.Now().Add(-15 * time.Minute))
+	s.SetLastSeen(time.Now().Add(-16 * time.Minute))
 
-	// Try to access session - should be expired (30 min default)
+	// Try to access session - should be expired (15 min default)
 	_, err = session.GetSession(token)
 	if err == nil {
 		t.Fatal("Expired session should not be returned")
