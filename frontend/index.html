@@ -58,28 +58,43 @@
         <!-- Landing State: Create or Join -->
         <div id="landing" class="view active">
             <div class="actions">
-                <button id="createRoom" class="btn primary">Create Room</button>
-                <div class="separator">or</div>
+                <button id="createRoom" class="btn primary">Start a room</button>
+                <div class="separator">or, have a code</div>
                 <div class="join-form">
-                    <input type="text" id="codeInput" placeholder="Enter code" maxlength="6" autocomplete="off">
+                    <input type="text" id="codeInput" placeholder="ENTER CODE" maxlength="6" autocomplete="off">
                     <button id="joinRoom" class="btn">Join</button>
                 </div>
             </div>
             <div class="features">
-                <h2>AirDrop for any device</h2>
-                <p class="features-intro">Cross-platform file sharing that works between iPhone, Android, Mac, Windows, and Linux — no app, no signup, no cloud.</p>
+                <h2>AirDrop for any device.</h2>
+                <p class="features-intro">Cross-platform file sharing between iPhone, Android, Mac, Windows, Linux — no app, no signup, no cloud.</p>
                 <h3>How it works</h3>
                 <ol>
-                    <li><strong>Create a room</strong> — get a 6-character code</li>
-                    <li><strong>Share the code</strong> — send it to whoever you're transferring with</li>
-                    <li><strong>Send files</strong> — drag & drop, select files, or paste clipboard text</li>
+                    <li>
+                        <span>
+                            <strong>Start a room.</strong>
+                            <em>You'll get a 6-character code.</em>
+                        </span>
+                    </li>
+                    <li>
+                        <span>
+                            <strong>Share the code.</strong>
+                            <em>They're one tap away — any browser.</em>
+                        </span>
+                    </li>
+                    <li>
+                        <span>
+                            <strong>Send anything.</strong>
+                            <em>Files, folders, clipboard. Real-time stream.</em>
+                        </span>
+                    </li>
                 </ol>
-                <ul class="feature-list">
-                    <li>Free and open source</li>
-                    <li>No account, no registration, no app install</li>
-                    <li>Works in any browser — no download required</li>
-                    <li>Send large files with real-time streaming</li>
-                    <li>Nothing stored on our servers — files transfer and are gone</li>
+                <h3>Properties</h3>
+                <ul>
+                    <li><strong>Free and open source.</strong></li>
+                    <li><strong>No account, no install.</strong> Browser-only.</li>
+                    <li><strong>Streams large files</strong> in real time.</li>
+                    <li><strong>Nothing stored.</strong> Files transit, then they're gone.</li>
                 </ul>
             </div>
         </div>
@@ -87,11 +102,11 @@
         <!-- Waiting State: Showing code, waiting for peer -->
         <div id="waiting" class="view">
             <div class="code-display">
-                <p>Share this code:</p>
+                <p class="code-preamble">Share this code.</p>
                 <div id="roomCode" class="code"></div>
-                <p class="hint">Waiting for someone to join...</p>
+                <p class="pulse-row"><span class="pulse" aria-hidden="true"></span>They're one tap away.</p>
+                <button id="cancelRoom" class="ghost-btn">Cancel</button>
             </div>
-            <button id="cancelRoom" class="btn secondary">Cancel</button>
         </div>
 
         <!-- Connected State: Ready to transfer files -->

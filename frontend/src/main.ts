@@ -284,6 +284,17 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
 // Room Actions
 // =============================================================================
 
+function renderRoomCode(code: string): void {
+  const el = elements.roomCodeDisplay;
+  el.replaceChildren(
+    ...code.split("").map((ch) => {
+      const span = document.createElement("span");
+      span.textContent = ch;
+      return span;
+    }),
+  );
+}
+
 async function createRoom(): Promise<void> {
   try {
     // Call REST API to create room
@@ -296,8 +307,7 @@ async function createRoom(): Promise<void> {
     state.roomCode = data.code;
     console.log("[Room] Created with code:", state.roomCode);
 
-    // Display code and switch view
-    elements.roomCodeDisplay.textContent = state.roomCode;
+    renderRoomCode(data.code);
     showView("waiting");
 
     // Connect WebSocket and join room
