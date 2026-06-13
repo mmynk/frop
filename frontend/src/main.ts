@@ -739,13 +739,62 @@ async function sendClipboard(): Promise<void> {
 
     console.log(`[Clipboard] Sending ${text.length} chars`);
     sendMessage({ type: "clipboard", content: text });
-
-    // Show confirmation in transfer list
     addClipboardSentNotification(text);
   } catch (err) {
-    console.error("[Clipboard] Failed to read:", err);
-    showError("Could not access clipboard. Please allow clipboard permissions.");
+    console.warn("[Clipboard] API unavailable or denied, showing fallback:", err);
+    showClipboardFallback();
   }
+}
+
+function showClipboardFallback(): void {
+  const overlay = document.createElement("div");
+  overlay.className = "clipboard-modal-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "clipboard-modal";
+  modal.innerHTML = `
+    <p class="clipboard-modal-title">Paste your clipboard text</p>
+    <textarea class="clipboard-modal-textarea" placeholder="Paste here (Ctrl+V / ⌘V)..." rows="4"></textarea>
+    <p class="clipboard-modal-hint">Ctrl+Enter to send</p>
+    <div class="clipboard-modal-actions">
+      <button class="btn secondary clipboard-modal-cancel">Cancel</button>
+      <button class="btn primary clipboard-modal-send">Send</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const textarea = modal.querySelector<HTMLTextAreaElement>(".clipboard-modal-textarea")!;
+  const cancelBtn = modal.querySelector<HTMLButtonElement>(".clipboard-modal-cancel")!;
+  const sendBtn = modal.querySelector<HTMLButtonElement>(".clipboard-modal-send")!;
+
+  setTimeout(() => textarea.focus(), 50);
+
+  function close(): void {
+    overlay.remove();
+  }
+
+  function submit(): void {
+    const text = textarea.value;
+    if (!text) return;
+
+    if (text.length > MAX_CLIPBOARD_SIZE) {
+      showError(`Clipboard too large (${formatSize(text.length)}). Max is 1 MB.`);
+      return;
+    }
+
+    sendMessage({ type: "clipboard", content: text });
+    addClipboardSentNotification(text);
+    close();
+  }
+
+  cancelBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  sendBtn.addEventListener("click", submit);
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit();
+  });
 }
 
 function handleClipboardReceived(msg: WsMessage): void {
