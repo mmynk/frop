@@ -273,39 +273,11 @@ func TestFileTransferNoSession(t *testing.T) {
 	t.Log("Server handled file transfer without session gracefully")
 }
 
-// TestFileTransferPreservesDirectoryPath verifies that relative paths in
-// file_start.name (used when dropping a directory) are forwarded verbatim.
-// The relay treats name as an opaque string, so this is a contract test
-// guarding against any future server-side path munging.
-func TestFileTransferPreservesDirectoryPath(t *testing.T) {
-	defer cleanup()
-
-	server, wsURL := setupTestServer()
-	defer server.Close()
-
-	peer1, peer2, _ := establishSession(t, server, wsURL)
-	defer peer1.Close()
-	defer peer2.Close()
-
-	name := "photos/vacation/IMG_0042.jpg"
-	data := []byte("fake-jpeg-bytes")
-
-	peer1.WriteJSON(map[string]any{"type": "file_start", "name": name, "size": len(data)})
-	peer1.WriteMessage(websocket.BinaryMessage, data)
-	peer1.WriteJSON(map[string]any{"type": "file_end", "name": name})
-
-	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
-	received := receiveFile(t, peer2, name)
-	if string(received) != string(data) {
-		t.Errorf("Data mismatch: expected %q got %q", data, received)
-	}
-
-	t.Log("Directory path preserved end-to-end!")
-}
-
 // TestFileTransferSequentialMultiFile sends several files back-to-back and
 // verifies that file_start/binary/file_end frames stay in order across files.
 // This mirrors the frontend's drainSendQueue pattern (drag-drop of N files).
+// The "sub/b.bin" case also covers directory-transfer path preservation: the
+// relay treats file_start.name as opaque, so relative paths round-trip verbatim.
 func TestFileTransferSequentialMultiFile(t *testing.T) {
 	defer cleanup()
 
