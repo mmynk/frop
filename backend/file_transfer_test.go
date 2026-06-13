@@ -273,6 +273,124 @@ func TestFileTransferNoSession(t *testing.T) {
 	t.Log("Server handled file transfer without session gracefully")
 }
 
+// TestFileTransferPreservesDirectoryPath verifies that relative paths in
+// file_start.name (used when dropping a directory) are forwarded verbatim.
+// The relay treats name as an opaque string, so this is a contract test
+// guarding against any future server-side path munging.
+func TestFileTransferPreservesDirectoryPath(t *testing.T) {
+	defer cleanup()
+
+	server, wsURL := setupTestServer()
+	defer server.Close()
+
+	peer1, peer2, _ := establishSession(t, server, wsURL)
+	defer peer1.Close()
+	defer peer2.Close()
+
+	name := "photos/vacation/IMG_0042.jpg"
+	data := []byte("fake-jpeg-bytes")
+
+	peer1.WriteJSON(map[string]any{"type": "file_start", "name": name, "size": len(data)})
+	peer1.WriteMessage(websocket.BinaryMessage, data)
+	peer1.WriteJSON(map[string]any{"type": "file_end", "name": name})
+
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	received := receiveFile(t, peer2, name)
+	if string(received) != string(data) {
+		t.Errorf("Data mismatch: expected %q got %q", data, received)
+	}
+
+	t.Log("Directory path preserved end-to-end!")
+}
+
+// TestFileTransferSequentialMultiFile sends several files back-to-back and
+// verifies that file_start/binary/file_end frames stay in order across files.
+// This mirrors the frontend's drainSendQueue pattern (drag-drop of N files).
+func TestFileTransferSequentialMultiFile(t *testing.T) {
+	defer cleanup()
+
+	server, wsURL := setupTestServer()
+	defer server.Close()
+
+	peer1, peer2, _ := establishSession(t, server, wsURL)
+	defer peer1.Close()
+	defer peer2.Close()
+
+	files := []struct {
+		name string
+		body string
+	}{
+		{"a.txt", "first file payload"},
+		{"sub/b.bin", "second file payload"},
+		{"c.md", "third file payload"},
+	}
+
+	for _, f := range files {
+		peer1.WriteJSON(map[string]any{"type": "file_start", "name": f.name, "size": len(f.body)})
+		peer1.WriteMessage(websocket.BinaryMessage, []byte(f.body))
+		peer1.WriteJSON(map[string]any{"type": "file_end", "name": f.name})
+	}
+
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for _, f := range files {
+		got := receiveFile(t, peer2, f.name)
+		if string(got) != f.body {
+			t.Errorf("File %s: expected %q got %q", f.name, f.body, got)
+		}
+	}
+
+	t.Log("Sequential multi-file transfer ordering preserved!")
+}
+
+// TestSenderAbruptDisconnectMidTransfer simulates the sender hard-dropping
+// while a file is in flight. The receiver should get peer_disconnected so
+// the UI can drop the partial file rather than waiting forever.
+func TestSenderAbruptDisconnectMidTransfer(t *testing.T) {
+	defer cleanup()
+
+	server, wsURL := setupTestServer()
+	defer server.Close()
+
+	peer1, peer2, _ := establishSession(t, server, wsURL)
+	defer peer2.Close()
+
+	// Begin a large transfer but don't finish it.
+	peer1.WriteJSON(map[string]any{"type": "file_start", "name": "incomplete.bin", "size": 10_000_000})
+	peer1.WriteMessage(websocket.BinaryMessage, make([]byte, 1024))
+
+	// Drain the start + the partial chunk on the receiver side.
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var startMsg map[string]any
+	if err := peer2.ReadJSON(&startMsg); err != nil {
+		t.Fatalf("Failed to read file_start: %v", err)
+	}
+	if startMsg["type"] != "file_start" {
+		t.Fatalf("Expected file_start, got %v", startMsg)
+	}
+	msgType, _, err := peer2.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read partial chunk: %v", err)
+	}
+	if msgType != websocket.BinaryMessage {
+		t.Fatalf("Expected binary chunk, got type %d", msgType)
+	}
+
+	// Sender hard-drops mid-transfer.
+	peer1.Close()
+
+	// Receiver should be notified.
+	peer2.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var msg map[string]any
+	if err := peer2.ReadJSON(&msg); err != nil {
+		t.Fatalf("Expected peer_disconnected, got read error: %v", err)
+	}
+	if msg["type"] != "peer_disconnected" {
+		t.Errorf("Expected type=peer_disconnected, got %v", msg)
+	}
+
+	t.Log("Receiver correctly notified of mid-transfer sender drop!")
+}
+
 // =============================================================================
 // FILE CANCEL TESTS
 // =============================================================================
