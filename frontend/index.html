@@ -19,6 +19,18 @@
     <meta name="twitter:image" content="/frop.png">
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <script>
+      (function () {
+        var m = localStorage.getItem('frop-theme');
+        if (m !== 'light' && m !== 'dark') {
+          m = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', m);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400..700,30..100,0..1;1,9..144,400..700,30..100,0..1&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <link rel="canonical" href="https://frop.mmynk.com">
     <meta property="og:url" content="https://frop.mmynk.com">
@@ -36,10 +48,11 @@
     </script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Frop</h1>
-            <p class="tagline">File drop, anywhere</p>
+    <button id="themeToggle" class="toggle" type="button" aria-label="Toggle theme"></button>
+    <div class="screen">
+        <header class="header">
+            <h1>Frop<span class="stop">.</span></h1>
+            <p class="tagline">File drop, anywhere.</p>
         </header>
 
         <!-- Landing State: Create or Join -->

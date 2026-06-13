@@ -115,6 +115,9 @@ const elements = {
 
   // Disconnected
   backToLandingBtn: document.getElementById("backToLanding")!,
+
+  // Header
+  themeToggle: document.getElementById("themeToggle")!,
 };
 
 // =============================================================================
@@ -951,6 +954,9 @@ function escapeHtml(text: string): string {
 // =============================================================================
 
 function setupEventListeners(): void {
+  // Header
+  elements.themeToggle.addEventListener("click", cycleTheme);
+
   // Landing view
   elements.createRoomBtn.addEventListener("click", createRoom);
 
@@ -1044,8 +1050,59 @@ function setupEventListeners(): void {
 // Init
 // =============================================================================
 
+// =============================================================================
+// Theme system
+// =============================================================================
+
+type ThemeMode = "light" | "dark" | "system";
+
+const THEME_STORAGE_KEY = "frop-theme";
+const THEMES: { mode: ThemeMode; label: string }[] = [
+  { mode: "system", label: "◐ SYS" },
+  { mode: "light", label: "☀ LIGHT" },
+  { mode: "dark", label: "☾ DARK" },
+];
+
+let currentTheme: ThemeMode = "system";
+
+function readStoredTheme(): ThemeMode {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY);
+  return THEMES.find((t) => t.mode === raw)?.mode ?? "system";
+}
+
+function resolveTheme(mode: ThemeMode): "light" | "dark" {
+  if (mode !== "system") return mode;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function applyTheme(mode: ThemeMode): void {
+  document.documentElement.setAttribute("data-theme", resolveTheme(mode));
+  elements.themeToggle.textContent =
+    THEMES.find((t) => t.mode === mode)!.label;
+}
+
+function cycleTheme(): void {
+  const i = THEMES.findIndex((t) => t.mode === currentTheme);
+  currentTheme = THEMES[(i + 1) % THEMES.length].mode;
+  localStorage.setItem(THEME_STORAGE_KEY, currentTheme);
+  applyTheme(currentTheme);
+}
+
+function initTheme(): void {
+  currentTheme = readStoredTheme();
+  applyTheme(currentTheme);
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => {
+      if (currentTheme === "system") applyTheme("system");
+    });
+}
+
 function init(): void {
   console.log("[Frop] Initializing...");
+  initTheme();
   setupEventListeners();
 
   // Check for session token in URL parameter
