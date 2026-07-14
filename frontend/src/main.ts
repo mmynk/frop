@@ -81,6 +81,126 @@ const cancelledOutgoing = new Set<string>(); // Files cancelled by sender (us)
 let currentOutgoingSend: { name: string; element: HTMLElement } | null = null;
 
 // =============================================================================
+// History persistence
+//
+// Transfer and clipboard history live in the DOM, which a page refresh wipes.
+// We mirror terminal-state records into sessionStorage keyed by the session
+// token so a refresh (which auto-reconnects via ?s=token) can rehydrate them.
+// sessionStorage — not localStorage — because a Frop session is inherently
+// ephemeral: history should die with the tab, and needs no expiry logic.
+//
+// File bytes only ever stream through the relay, so a restored file is a
+// read-only receipt (name/size/status), not something re-downloadable.
+// =============================================================================
+
+interface ClipRecord {
+  sent: boolean;
+  content: string;
+}
+
+interface FileRecord {
+  name: string;
+  size: number;
+  status: "done" | "cancelled";
+  direction: "send" | "receive";
+}
+
+interface HistoryRecord {
+  clips: ClipRecord[];
+  files: FileRecord[];
+}
+
+const HISTORY_KEY_PREFIX = "frop_history_";
+const MAX_HISTORY = 10; // matches the live DOM trim
+let historyHydrated = false;
+
+function historyKey(): string | null {
+  return state.sessionToken ? HISTORY_KEY_PREFIX + state.sessionToken : null;
+}
+
+function loadHistory(): HistoryRecord {
+  const key = historyKey();
+  const empty: HistoryRecord = { clips: [], files: [] };
+  if (!key) return empty;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw);
+    return {
+      clips: Array.isArray(parsed?.clips) ? parsed.clips : [],
+      files: Array.isArray(parsed?.files) ? parsed.files : [],
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function saveHistory(h: HistoryRecord): void {
+  const key = historyKey();
+  if (!key) return;
+  try {
+    sessionStorage.setItem(key, JSON.stringify(h));
+  } catch {
+    // sessionStorage unavailable (private mode) or over quota — history just
+    // won't survive refresh. The live UI is unaffected.
+  }
+}
+
+function clearStoredHistory(token: string | null): void {
+  if (!token) return;
+  try {
+    sessionStorage.removeItem(HISTORY_KEY_PREFIX + token);
+  } catch {
+    // ignore
+  }
+}
+
+function recordClip(sent: boolean, content: string): void {
+  const h = loadHistory();
+  h.clips.push({ sent, content });
+  if (h.clips.length > MAX_HISTORY) h.clips = h.clips.slice(-MAX_HISTORY);
+  saveHistory(h);
+}
+
+function recordFile(rec: FileRecord): void {
+  const h = loadHistory();
+  h.files.push(rec);
+  if (h.files.length > MAX_HISTORY) h.files = h.files.slice(-MAX_HISTORY);
+  saveHistory(h);
+}
+
+// Rehydrate the lists from storage exactly once per page load. `connected`
+// can arrive more than once (a peer reconnecting re-notifies both sides); the
+// guard keeps those later notifications from duplicating the live DOM.
+function hydrateHistory(): void {
+  if (historyHydrated) return;
+  historyHydrated = true;
+  const h = loadHistory();
+  // Clips are stored oldest→newest; each add prepends, so iterating in order
+  // leaves the newest on top — matching live behavior.
+  for (const clip of h.clips) {
+    if (clip.sent) {
+      addClipboardSentNotification(clip.content, false);
+    } else {
+      addClipboardReceivedNotification(clip.content, false);
+    }
+  }
+  // Files are stored and appended oldest→newest.
+  for (const file of h.files) {
+    restoreFileReceipt(file);
+  }
+}
+
+function restoreFileReceipt(rec: FileRecord): void {
+  const item = addTransferItem(rec.name, rec.size, rec.direction);
+  if (rec.status === "cancelled") {
+    markCancelled(item);
+  } else {
+    markComplete(item, rec.size);
+  }
+}
+
+// =============================================================================
 // DOM Elements
 // =============================================================================
 
@@ -306,6 +426,9 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
         setSessionTokenInUrl(state.sessionToken);
       }
 
+      // Restore any history saved under this session before the refresh.
+      hydrateHistory();
+
       setPeerConnected(true);
       showView("connected");
       break;
@@ -441,6 +564,7 @@ function cancelRoom(): void {
 }
 
 function backToLanding(): void {
+  clearStoredHistory(state.sessionToken);
   state.roomCode = null;
   state.sessionToken = null;
   if (state.ws) {
@@ -642,9 +766,11 @@ async function sendFile(file: File): Promise<void> {
   if (cancelled) {
     sendMessage({ type: "file_cancel", name, reason: "user_cancelled" });
     markCancelled(element);
+    recordFile({ name, size: file.size, status: "cancelled", direction: "send" });
   } else {
     sendMessage({ type: "file_end", name });
     markComplete(element, file.size);
+    recordFile({ name, size: file.size, status: "done", direction: "send" });
     console.log(`[Transfer] Sent: ${name}`);
   }
 }
@@ -738,6 +864,12 @@ async function handleFileEnd(): Promise<void> {
   }
 
   markComplete(incomingTransfer.element, incomingTransfer.size);
+  recordFile({
+    name: incomingTransfer.name,
+    size: incomingTransfer.size,
+    status: "done",
+    direction: "receive",
+  });
   incomingTransfer = null;
 }
 
@@ -777,6 +909,12 @@ async function handleFileCancel(msg: WsMessage): Promise<void> {
     }
 
     markCancelled(incomingTransfer.element);
+    recordFile({
+      name: incomingTransfer.name,
+      size: incomingTransfer.size,
+      status: "cancelled",
+      direction: "receive",
+    });
     incomingTransfer = null;
   }
 }
@@ -886,17 +1024,19 @@ function handleClipboardReceived(msg: WsMessage): void {
   addClipboardReceivedNotification(content);
 }
 
-function addClipboardSentNotification(content: string): void {
+function addClipboardSentNotification(content: string, persist = true): void {
   const item = buildClipItem("clipboard sent", "just now", content, 100);
   item.classList.add("sent");
   elements.clipboardList.prepend(item);
   trimList(elements.clipboardList, 10);
+  if (persist) recordClip(true, content);
 }
 
-function addClipboardReceivedNotification(content: string): void {
+function addClipboardReceivedNotification(content: string, persist = true): void {
   const item = buildClipItem("clipboard received", "just now", content, 200);
   elements.clipboardList.prepend(item);
   trimList(elements.clipboardList, 10);
+  if (persist) recordClip(false, content);
 }
 
 function buildClipItem(
