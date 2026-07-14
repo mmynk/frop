@@ -778,6 +778,42 @@ body {
     line-height: 1.5;
 }
 
+.clip-copy {
+    margin-top: 0.65rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.clip-copy:hover {
+    background: var(--accent);
+    color: var(--surface);
+}
+
+.clip-copy.copied {
+    background: var(--accent);
+    color: var(--surface);
+}
+
+.clip-item.sent .clip-copy {
+    color: var(--ink-subtle);
+    border-color: var(--border-strong);
+}
+
+.clip-item.sent .clip-copy:hover,
+.clip-item.sent .clip-copy.copied {
+    background: var(--border-strong);
+    color: var(--surface);
+}
+
 /* Toast Notifications */
 .toast-container {
     position: fixed;

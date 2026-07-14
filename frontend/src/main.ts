@@ -920,8 +920,77 @@ function buildClipItem(
   text.className = "clip-text";
   text.textContent = truncateText(content, maxLen);
 
-  item.append(labelRow, text);
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "clip-copy";
+  copyBtn.type = "button";
+  copyBtn.textContent = "Copy";
+  copyBtn.onclick = () => copyClipContent(copyBtn, content);
+
+  item.append(labelRow, text, copyBtn);
   return item;
+}
+
+// Each pill's Copy button resets independently — a shared timer would leave an
+// earlier button stuck on "Copied" when a second is clicked within the window.
+const copyResetTimers = new WeakMap<HTMLButtonElement, number>();
+
+async function copyClipContent(
+  btn: HTMLButtonElement,
+  content: string,
+): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(content);
+  } catch {
+    showCopyFallback(content);
+    return;
+  }
+  btn.textContent = "Copied";
+  btn.classList.add("copied");
+  const existing = copyResetTimers.get(btn);
+  if (existing !== undefined) clearTimeout(existing);
+  copyResetTimers.set(
+    btn,
+    window.setTimeout(() => {
+      btn.textContent = "Copy";
+      btn.classList.remove("copied");
+      copyResetTimers.delete(btn);
+    }, 1200),
+  );
+}
+
+function showCopyFallback(content: string): void {
+  const overlay = document.createElement("div");
+  overlay.className = "clipboard-modal-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "clipboard-modal";
+  modal.innerHTML = `
+    <p class="clipboard-modal-title">Copy it here.</p>
+    <textarea class="clipboard-modal-textarea" readonly rows="4"></textarea>
+    <p class="clipboard-modal-hint">Select all, then Ctrl+C or ⌘C.</p>
+    <div class="clipboard-modal-actions">
+      <button class="btn clipboard-modal-cancel">Close</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const textarea = modal.querySelector<HTMLTextAreaElement>(".clipboard-modal-textarea")!;
+  const closeBtn = modal.querySelector<HTMLButtonElement>(".clipboard-modal-cancel")!;
+  textarea.value = content;
+
+  setTimeout(() => {
+    textarea.focus();
+    textarea.select();
+  }, 50);
+
+  function close(): void {
+    overlay.remove();
+  }
+
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 }
 
 function truncateText(text: string, maxLength: number): string {
