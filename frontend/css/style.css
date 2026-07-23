@@ -553,6 +553,12 @@ body {
     animation: none;
 }
 
+.status-bar .dot.reconnecting {
+    background: var(--amber);
+    box-shadow: 0 0 0 0 var(--accent-glow);
+    animation: pulse 1s ease-out infinite;
+}
+
 /* Disconnected banner (shown inside #connected view to preserve history).
    Borrows the dropzone chassis so it sits in the same shape that was just
    vacated, with disconnected-msg styling matching the dedicated view. */

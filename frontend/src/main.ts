@@ -273,6 +273,7 @@ function showView(view: View): void {
 
 function setPeerConnected(connected: boolean): void {
   elements.statusDot.classList.toggle("disconnected", !connected);
+  elements.statusDot.classList.remove("reconnecting");
   elements.statusText.textContent = connected ? "Connected." : "Disconnected.";
   elements.dropzone.hidden = !connected;
   elements.disconnectedBanner.hidden = connected;
@@ -281,6 +282,18 @@ function setPeerConnected(connected: boolean): void {
   if (!connected) {
     stopUptime();
   }
+}
+
+// Our own socket dropped but the session may still be alive: show a transient
+// "Reconnecting" state instead of the terminal disconnected banner. The
+// dropzone stays hidden (can't send while offline) but no "Start over" prompt.
+function setReconnecting(): void {
+  elements.statusDot.classList.remove("disconnected");
+  elements.statusDot.classList.add("reconnecting");
+  elements.statusText.textContent = "Reconnecting…";
+  elements.dropzone.hidden = true;
+  elements.disconnectedBanner.hidden = true;
+  stopUptime();
 }
 
 // After pairing, preserve history by marking the connected view disconnected
@@ -400,11 +413,80 @@ function connectWebSocket(): WebSocket {
   ws.onclose = () => {
     console.log("[WS] Disconnected");
     state.ws = null;
-    handleDisconnect();
+    // A live drop while paired (screen lock, backgrounded tab, network blip)
+    // is recoverable: the session survives server-side for its lifespan, so
+    // retry with the token instead of stranding the user on a dead view.
+    if (state.sessionToken && state.view === "connected") {
+      setReconnecting();
+      scheduleReconnect();
+    } else {
+      handleDisconnect();
+    }
   };
 
   state.ws = ws;
   return ws;
+}
+
+// =============================================================================
+// Reconnection
+//
+// When our own socket drops mid-session we reconnect by session token rather
+// than making the user re-pair. Backoff covers transient foreground blips;
+// mobile browsers freeze timers while backgrounded, so the practical trigger
+// for "came back to the app" is the visibilitychange/online listeners, which
+// reset the backoff and retry at once.
+// =============================================================================
+
+const MAX_RECONNECT_ATTEMPTS = 6;
+const MAX_RECONNECT_DELAY = 15000; // 15s ceiling on backoff
+let reconnectAttempts = 0;
+let reconnectTimer: number | null = null;
+
+function scheduleReconnect(): void {
+  if (!state.sessionToken || state.ws || reconnectTimer !== null) return;
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    // Give up the automatic loop and surface the banner so the user can act.
+    // A later visibilitychange/online resets the counter and tries again.
+    handleDisconnect();
+    return;
+  }
+  const delay = Math.min(1000 * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
+  reconnectAttempts++;
+  console.log(`[WS] Reconnect attempt ${reconnectAttempts} in ${delay}ms`);
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    attemptReconnect();
+  }, delay);
+}
+
+function attemptReconnect(): void {
+  if (!state.sessionToken || state.ws) return;
+  const ws = connectWebSocket();
+  ws.onopen = () => {
+    console.log("[WS] Reconnecting with session token...");
+    sendMessage({ type: "reconnect", sessionToken: state.sessionToken! });
+  };
+}
+
+// Fired when the tab regains focus or the network returns — skip the backoff
+// wait and try immediately, since these are the moments a drop is recoverable.
+function reconnectNow(): void {
+  if (!state.sessionToken || state.ws) return;
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectAttempts = 0;
+  attemptReconnect();
+}
+
+function resetReconnect(): void {
+  reconnectAttempts = 0;
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
 }
 
 function sendMessage(msg: WsMessage): void {
@@ -421,6 +503,7 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
     case "connected":
       console.log("[WS] Paired with peer! Token:", msg.sessionToken);
       state.sessionToken = msg.sessionToken ?? null;
+      resetReconnect();
 
       if (state.sessionToken) {
         setSessionTokenInUrl(state.sessionToken);
@@ -438,6 +521,7 @@ async function handleWsMessage(msg: WsMessage): Promise<void> {
       showError(getErrorMessage(msg.error ?? ""));
 
       state.sessionToken = null;
+      resetReconnect();
       setSessionTokenInUrl(null);
 
       showView("landing");
@@ -565,6 +649,7 @@ function cancelRoom(): void {
 
 function backToLanding(): void {
   clearStoredHistory(state.sessionToken);
+  resetReconnect();
   state.roomCode = null;
   state.sessionToken = null;
   if (state.ws) {
@@ -1300,6 +1385,14 @@ function setupEventListeners(): void {
       sendClipboard();
     }
   });
+
+  // Reconnect eagerly when the app comes back to the foreground or the network
+  // returns — mobile browsers freeze the backoff timer while backgrounded, so
+  // these events are the real trigger for recovering a dropped session.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") reconnectNow();
+  });
+  window.addEventListener("online", reconnectNow);
 
   // Drag and drop
   elements.dropzone.addEventListener("dragover", (e) => {
