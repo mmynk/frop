@@ -707,6 +707,35 @@ body {
     color: var(--ink-muted);
 }
 
+/* Save control on a completed incoming transfer. The tap is the user gesture
+   mobile browsers require to accept a download. */
+.transfer-download {
+    display: inline-block;
+    margin-top: 0.65rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.transfer-download:hover {
+    background: var(--accent);
+    color: var(--surface);
+}
+
+.transfer-item.saved .transfer-download {
+    color: var(--ink-subtle);
+    border-color: var(--border-strong);
+}
+
 /* Disconnected */
 #disconnected {
     text-align: center;

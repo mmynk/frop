@@ -659,6 +659,7 @@ function backToLanding(): void {
   // download or write into a list we just cleared.
   incomingTransfer = null;
   sendQueue = [];
+  revokeDownloadUrls(elements.transferList);
   elements.transferList.innerHTML = "";
   elements.clipboardList.innerHTML = "";
   setPeerConnected(true);
@@ -934,7 +935,8 @@ async function handleFileEnd(): Promise<void> {
     `[Transfer] Complete: ${incomingTransfer.name} (${incomingTransfer.received} bytes)`,
   );
 
-  // If we were streaming to disk, close the stream
+  // If we were streaming to disk, the file is already written — the user
+  // picked its location up front, so nothing more to offer.
   if (incomingTransfer.writable) {
     try {
       await incomingTransfer.writable.close();
@@ -943,9 +945,11 @@ async function handleFileEnd(): Promise<void> {
       console.error(`[Transfer] Failed to close writable stream:`, err);
     }
   } else {
-    // Traditional blob download for smaller files
+    // Offer the file behind a tap rather than auto-downloading: iOS Safari
+    // silently drops programmatic downloads that lack a user gesture (and
+    // collapses rapid back-to-back ones), so a second file would never save.
     const blob = new Blob(incomingTransfer.chunks);
-    downloadBlob(blob, incomingTransfer.name);
+    addDownloadButton(incomingTransfer.element, blob, incomingTransfer.name);
   }
 
   markComplete(incomingTransfer.element, incomingTransfer.size);
@@ -958,15 +962,25 @@ async function handleFileEnd(): Promise<void> {
   incomingTransfer = null;
 }
 
-function downloadBlob(blob: Blob, name: string): void {
+// Attach a Save control to a completed incoming transfer. The download fires
+// from the user's tap (the gesture mobile browsers require) rather than
+// programmatically. The blob URL stays live for the item's lifetime so the
+// user can save (and re-save) whenever they choose.
+function addDownloadButton(
+  element: HTMLElement,
+  blob: Blob,
+  name: string,
+): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+  a.className = "transfer-download";
   a.href = url;
   a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  a.textContent = "Save";
+  a.addEventListener("click", () => {
+    element.classList.add("saved");
+  });
+  element.appendChild(a);
 }
 
 // =============================================================================
@@ -1225,7 +1239,18 @@ function truncateText(text: string, maxLength: number): string {
 
 function trimList(list: HTMLElement, max: number): void {
   while (list.children.length > max) {
-    list.lastElementChild?.remove();
+    const last = list.lastElementChild;
+    if (last instanceof HTMLElement) revokeDownloadUrls(last);
+    last?.remove();
+  }
+}
+
+// Free any object URLs held by Save controls within a subtree before it leaves
+// the DOM. Each pins its blob (up to LARGE_FILE_THRESHOLD) in memory until
+// revoked, so dropping an item without this leaks that blob for the tab's life.
+function revokeDownloadUrls(root: HTMLElement): void {
+  for (const a of root.querySelectorAll<HTMLAnchorElement>(".transfer-download")) {
+    URL.revokeObjectURL(a.href);
   }
 }
 
