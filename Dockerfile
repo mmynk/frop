@@ -4,6 +4,9 @@ WORKDIR /app/frontend
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ .
+# esbuild strips types without checking them, so typecheck separately or a type
+# error ships silently.
+RUN npm run typecheck
 RUN npm run build
 
 # --- Build backend ---

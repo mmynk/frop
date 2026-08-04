@@ -2,6 +2,7 @@
   "name": "frop-frontend",
   "private": true,
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "esbuild src/main.ts --bundle --outfile=dist/bundle.js",
     "watch": "esbuild src/main.ts --bundle --outfile=dist/bundle.js --watch"
   },

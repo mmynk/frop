@@ -1,4 +1,4 @@
-.PHONY: dev build test clean frontend backend deploy logs
+.PHONY: dev build test typecheck clean frontend backend deploy logs
 
 # Build and run locally with podman
 dev: build
@@ -11,6 +11,10 @@ build:
 # Run backend tests
 test:
 	cd backend && go test -v ./...
+
+# Typecheck frontend (esbuild strips types without checking them)
+typecheck:
+	cd frontend && bun run typecheck
 
 # Build frontend only (for quick iteration)
 frontend:
