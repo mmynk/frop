@@ -1,15 +1,8 @@
 // =============================================================================
-// Types
+// Types shared across modules
 // =============================================================================
 
 export type View = "landing" | "waiting" | "connected" | "disconnected";
-
-export interface AppState {
-  view: View;
-  roomCode: string | null;
-  sessionToken: string | null;
-  ws: WebSocket | null;
-}
 
 // WebSocket message types (matches backend models/ws.go)
 export interface WsMessage {

@@ -1,7 +1,12 @@
 // =============================================================================
 // Transfer UI
+//
+// Owns the transfer list DOM, including the full lifecycle of the object URLs
+// held by Save controls: allocation and revocation live together here so a
+// removal path can't drop an item without freeing its blob.
 // =============================================================================
 
+import { MAX_HISTORY } from "./constants";
 import { elements } from "./dom";
 import { formatSize } from "./format";
 
@@ -36,7 +41,7 @@ export function addTransferItem(
   item.append(head, track);
 
   elements.transferList.appendChild(item);
-  trimList(elements.transferList, 10);
+  trimList(elements.transferList);
   return item;
 }
 
@@ -64,7 +69,28 @@ export function markCancelled(element: HTMLElement): void {
     "cancelled";
 }
 
-export function trimList(list: HTMLElement, max: number): void {
+// Attach a Save control to a completed incoming transfer. The download fires
+// from the user's tap (the gesture mobile browsers require) rather than
+// programmatically. The blob URL stays live for the item's lifetime so the
+// user can save (and re-save) whenever they choose.
+export function addDownloadButton(
+  element: HTMLElement,
+  blob: Blob,
+  name: string,
+): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.className = "transfer-download";
+  a.href = url;
+  a.download = name;
+  a.textContent = "Save";
+  a.addEventListener("click", () => {
+    element.classList.add("saved");
+  });
+  element.appendChild(a);
+}
+
+export function trimList(list: HTMLElement, max = MAX_HISTORY): void {
   while (list.children.length > max) {
     const last = list.lastElementChild;
     if (last instanceof HTMLElement) revokeDownloadUrls(last);
@@ -72,10 +98,15 @@ export function trimList(list: HTMLElement, max: number): void {
   }
 }
 
+export function clearTransferList(): void {
+  revokeDownloadUrls(elements.transferList);
+  elements.transferList.replaceChildren();
+}
+
 // Free any object URLs held by Save controls within a subtree before it leaves
 // the DOM. Each pins its blob (up to LARGE_FILE_THRESHOLD) in memory until
 // revoked, so dropping an item without this leaks that blob for the tab's life.
-export function revokeDownloadUrls(root: HTMLElement): void {
+function revokeDownloadUrls(root: HTMLElement): void {
   for (const a of root.querySelectorAll<HTMLAnchorElement>(".transfer-download")) {
     URL.revokeObjectURL(a.href);
   }

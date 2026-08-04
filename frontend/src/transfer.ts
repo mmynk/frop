@@ -6,15 +6,11 @@
 // through the functions here.
 // =============================================================================
 
-import {
-  CHUNK_SIZE,
-  LARGE_FILE_THRESHOLD,
-  MAX_BUFFER_SIZE,
-} from "./constants";
+import { CHUNK_SIZE, LARGE_FILE_THRESHOLD } from "./constants";
 import { recordFile } from "./history";
-import { sendMessage } from "./send";
-import { state } from "./state";
+import { sendBinary, sendMessage } from "./socket";
 import {
+  addDownloadButton,
   addTransferItem,
   markCancelled,
   markComplete,
@@ -41,29 +37,6 @@ export function resetTransferState(): void {
 // =============================================================================
 // File Transfer - Sending
 // =============================================================================
-
-/**
- * Wait for the WebSocket send buffer to drain below the threshold.
- * This implements backpressure to prevent memory bloat on large transfers.
- */
-function waitForBuffer(ws: WebSocket): Promise<void> {
-  return new Promise((resolve) => {
-    if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
-      resolve();
-      return;
-    }
-
-    // Poll every 10ms until buffer drains
-    const checkBuffer = () => {
-      if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
-        resolve();
-      } else {
-        setTimeout(checkBuffer, 10);
-      }
-    };
-    checkBuffer();
-  });
-}
 
 export function queueFiles(files: FileList | File[]): void {
   sendQueue.push(...Array.from(files));
@@ -102,13 +75,11 @@ async function sendFile(file: File): Promise<void> {
       break;
     }
 
-    // Wait for buffer to drain before sending next chunk (backpressure)
-    await waitForBuffer(state.ws!);
-
     const end = Math.min(offset + CHUNK_SIZE, file.size);
     const slice = file.slice(offset, end);
     const buffer = await slice.arrayBuffer();
-    state.ws!.send(buffer);
+    // Applies backpressure before writing.
+    await sendBinary(buffer);
     offset = end;
     updateProgress(element, offset, file.size);
   }
@@ -157,7 +128,9 @@ export async function handleFileStart(msg: WsMessage): Promise<void> {
     name: msg.name!,
     size: msg.size!,
     received: 0,
-    chunks: writable ? [] : [], // Still need chunks array for non-streaming
+    // Buffers the file when not streaming, and also catches chunks if a disk
+    // write fails partway through a streamed transfer.
+    chunks: [],
     element,
     writable,
   };
@@ -215,6 +188,9 @@ export async function handleFileEnd(): Promise<void> {
     // silently drops programmatic downloads that lack a user gesture (and
     // collapses rapid back-to-back ones), so a second file would never save.
     const blob = new Blob(incomingTransfer.chunks);
+    // The blob owns the bytes now; release the chunk views so the two don't
+    // both stay resident (up to LARGE_FILE_THRESHOLD each).
+    incomingTransfer.chunks = [];
     addDownloadButton(incomingTransfer.element, blob, incomingTransfer.name);
   }
 
@@ -226,27 +202,6 @@ export async function handleFileEnd(): Promise<void> {
     direction: "receive",
   });
   incomingTransfer = null;
-}
-
-// Attach a Save control to a completed incoming transfer. The download fires
-// from the user's tap (the gesture mobile browsers require) rather than
-// programmatically. The blob URL stays live for the item's lifetime so the
-// user can save (and re-save) whenever they choose.
-function addDownloadButton(
-  element: HTMLElement,
-  blob: Blob,
-  name: string,
-): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.className = "transfer-download";
-  a.href = url;
-  a.download = name;
-  a.textContent = "Save";
-  a.addEventListener("click", () => {
-    element.classList.add("saved");
-  });
-  element.appendChild(a);
 }
 
 // =============================================================================
@@ -334,18 +289,24 @@ async function readDirectoryEntries(
   let batch: FileSystemEntry[];
   do {
     batch = await readBatch();
-    for (const entry of batch) {
+    // Start every file stat in the batch before awaiting any of them: the calls
+    // are independent, and a large directory otherwise pays one full round trip
+    // per file. Entries are collected in encounter order, so files and
+    // subdirectories stay interleaved exactly as the reader returned them.
+    const pending: Promise<File[]>[] = batch.map((entry) => {
       const entryPath = basePath ? `${basePath}/${entry.name}` : entry.name;
       if (entry.isFile) {
-        const file = await getFileFromEntry(entry as FileSystemFileEntry, entryPath);
-        files.push(file);
-      } else if (entry.isDirectory) {
-        const subFiles = await readDirectoryEntries(
-          entry as FileSystemDirectoryEntry,
-          entryPath
+        return getFileFromEntry(entry as FileSystemFileEntry, entryPath).then(
+          (file) => [file],
         );
-        files.push(...subFiles);
       }
+      if (entry.isDirectory) {
+        return readDirectoryEntries(entry as FileSystemDirectoryEntry, entryPath);
+      }
+      return Promise.resolve([]);
+    });
+    for (const group of await Promise.all(pending)) {
+      files.push(...group);
     }
   } while (batch.length > 0);
 

@@ -2,15 +2,19 @@
 // Room Actions
 // =============================================================================
 
+import { COPY_FEEDBACK_MS } from "./constants";
+import { clearClipboardList } from "./clipboard";
 import { elements } from "./dom";
 import { clearStoredHistory } from "./history";
-import { sendMessage } from "./send";
+import { close } from "./socket";
 import { state } from "./state";
 import { showError } from "./toast";
 import { resetTransferState } from "./transfer";
-import { revokeDownloadUrls } from "./ui";
+import { clearTransferList } from "./ui";
 import { setPeerConnected, setSessionTokenInUrl, showView } from "./views";
-import { connectWebSocket, resetReconnect } from "./ws";
+import { openSocket, resetReconnect } from "./ws";
+
+const CODE_LENGTH = 6;
 
 let copyHintResetTimer: number | null = null;
 
@@ -45,7 +49,11 @@ async function copyRoomCode(code: string): Promise<void> {
   copyHintResetTimer = window.setTimeout(() => {
     el.classList.remove("copied");
     elements.codeHint.textContent = "Click to copy.";
-  }, 1200);
+  }, COPY_FEEDBACK_MS);
+}
+
+function connectAndJoin(): void {
+  openSocket({ type: "join", code: state.roomCode! });
 }
 
 export async function createRoom(): Promise<void> {
@@ -62,20 +70,14 @@ export async function createRoom(): Promise<void> {
 
     renderRoomCode(data.code);
     showView("waiting");
-
-    // Connect WebSocket and join room
-    const ws = connectWebSocket();
-    ws.onopen = () => {
-      console.log("[WS] Connected, joining room...");
-      sendMessage({ type: "join", code: state.roomCode! });
-    };
+    connectAndJoin();
   } catch (error) {
     console.error("[Room] Failed to create:", error);
   }
 }
 
 export function joinRoom(code: string): void {
-  if (!code || code.length !== 6) {
+  if (!code || code.length !== CODE_LENGTH) {
     console.error("[Room] Invalid code:", code);
     showError("Codes are six characters.");
     elements.codeInput.focus();
@@ -84,20 +86,12 @@ export function joinRoom(code: string): void {
 
   state.roomCode = code.toUpperCase();
   console.log("[Room] Joining:", state.roomCode);
-
-  // Connect WebSocket and join
-  const ws = connectWebSocket();
-  ws.onopen = () => {
-    console.log("[WS] Connected, joining room...");
-    sendMessage({ type: "join", code: state.roomCode! });
-  };
+  connectAndJoin();
 }
 
 export function cancelRoom(): void {
   console.log("[Room] Cancelling...");
-  if (state.ws) {
-    state.ws.close();
-  }
+  close();
   state.roomCode = null;
   showView("landing");
 }
@@ -107,13 +101,10 @@ export function backToLanding(): void {
   resetReconnect();
   state.roomCode = null;
   state.sessionToken = null;
-  if (state.ws) {
-    state.ws.close();
-  }
+  close();
   resetTransferState();
-  revokeDownloadUrls(elements.transferList);
-  elements.transferList.innerHTML = "";
-  elements.clipboardList.innerHTML = "";
+  clearTransferList();
+  clearClipboardList();
   setPeerConnected(true);
   setSessionTokenInUrl(null);
   showView("landing");

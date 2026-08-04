@@ -1,10 +1,13 @@
 // =============================================================================
-// WebSocket Client
+// Inbound message dispatch and reconnection policy
+//
+// Routes what arrives on the socket to the feature modules. Writes go through
+// socket.ts, so nothing here sits on the send path.
 // =============================================================================
 
 import { handleClipboardReceived } from "./clipboard";
 import { hydrateHistory } from "./hydrate";
-import { sendMessage } from "./send";
+import { connect } from "./socket";
 import { state } from "./state";
 import { getErrorMessage, showError } from "./toast";
 import {
@@ -22,50 +25,32 @@ import {
 } from "./views";
 import type { WsMessage } from "./types";
 
-function getWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws`;
-}
+// Open a socket, optionally announcing ourselves with a first control message.
+export function openSocket(firstMessage?: WsMessage): void {
+  connect({
+    firstMessage,
+    onMessage: async (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        await handleBinaryChunk(event.data);
+        return;
+      }
 
-export function connectWebSocket(): WebSocket {
-  const ws = new WebSocket(getWsUrl());
-  ws.binaryType = "arraybuffer";
-
-  ws.onopen = () => {
-    console.log("[WS] Connected");
-  };
-
-  ws.onmessage = async (event) => {
-    if (event.data instanceof ArrayBuffer) {
-      await handleBinaryChunk(event.data);
-      return;
-    }
-
-    console.log("[WS] Message:", event.data);
-    const msg: WsMessage = JSON.parse(event.data);
-    await handleWsMessage(msg);
-  };
-
-  ws.onerror = (error) => {
-    console.error("[WS] Error:", error);
-  };
-
-  ws.onclose = () => {
-    console.log("[WS] Disconnected");
-    state.ws = null;
-    // A live drop while paired (screen lock, backgrounded tab, network blip)
-    // is recoverable: the session survives server-side for its lifespan, so
-    // retry with the token instead of stranding the user on a dead view.
-    if (state.sessionToken && state.view === "connected") {
-      setReconnecting();
-      scheduleReconnect();
-    } else {
-      handleDisconnect();
-    }
-  };
-
-  state.ws = ws;
-  return ws;
+      console.log("[WS] Message:", event.data);
+      const msg: WsMessage = JSON.parse(event.data);
+      await handleWsMessage(msg);
+    },
+    onClose: () => {
+      // A live drop while paired (screen lock, backgrounded tab, network blip)
+      // is recoverable: the session survives server-side for its lifespan, so
+      // retry with the token instead of stranding the user on a dead view.
+      if (state.sessionToken && state.view === "connected") {
+        setReconnecting();
+        scheduleReconnect();
+      } else {
+        handleDisconnect();
+      }
+    },
+  });
 }
 
 // =============================================================================
@@ -102,11 +87,8 @@ function scheduleReconnect(): void {
 
 function attemptReconnect(): void {
   if (!state.sessionToken || state.ws) return;
-  const ws = connectWebSocket();
-  ws.onopen = () => {
-    console.log("[WS] Reconnecting with session token...");
-    sendMessage({ type: "reconnect", sessionToken: state.sessionToken! });
-  };
+  console.log("[WS] Reconnecting with session token...");
+  openSocket({ type: "reconnect", sessionToken: state.sessionToken });
 }
 
 // Fired when the tab regains focus or the network returns — skip the backoff

@@ -6,12 +6,11 @@ import {
   createRoom,
   joinRoom,
 } from "./room";
-import { sendMessage } from "./send";
 import { state } from "./state";
 import { initTheme, cycleTheme } from "./theme";
 import { processDroppedItems, queueFiles } from "./transfer";
 import { showView } from "./views";
-import { connectWebSocket, reconnectNow } from "./ws";
+import { reconnectNow } from "./ws";
 
 // =============================================================================
 // Event Listeners
@@ -137,12 +136,7 @@ function init(): void {
     console.log("[Frop] Found session token in URL, auto-reconnecting...");
     state.sessionToken = sessionToken.trim();
     showView("waiting"); // Show waiting view as visual feedback
-
-    const ws = connectWebSocket();
-    ws.onopen = () => {
-      console.log("[WS] Connected, sending reconnect message...");
-      sendMessage({ type: "reconnect", sessionToken: state.sessionToken! });
-    };
+    reconnectNow();
   } else {
     // Normal flow: show landing page
     showView("landing");

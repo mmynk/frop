@@ -10,17 +10,19 @@ import {
   addClipboardSentNotification,
 } from "./clipboard";
 import { loadHistory } from "./history";
+import { state } from "./state";
 import { addTransferItem, markCancelled, markComplete } from "./ui";
 import type { FileRecord } from "./types";
 
-let historyHydrated = false;
+// The session whose history is already on screen. `connected` can arrive more
+// than once for one session (a peer reconnecting re-notifies both sides) and
+// must not duplicate the DOM; a genuinely new session must still hydrate.
+let hydratedToken: string | null = null;
 
-// Rehydrate the lists from storage exactly once per page load. `connected`
-// can arrive more than once (a peer reconnecting re-notifies both sides); the
-// guard keeps those later notifications from duplicating the live DOM.
 export function hydrateHistory(): void {
-  if (historyHydrated) return;
-  historyHydrated = true;
+  if (hydratedToken === state.sessionToken) return;
+  hydratedToken = state.sessionToken;
+
   const h = loadHistory();
   // Clips are stored oldest→newest; each add prepends, so iterating in order
   // leaves the newest on top — matching live behavior.

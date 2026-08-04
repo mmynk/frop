@@ -6,16 +6,12 @@ import { elements } from "./dom";
 import { state } from "./state";
 import type { View } from "./types";
 
-export function showView(view: View): void {
-  // Hide all views
-  elements.landing.classList.remove("active");
-  elements.waiting.classList.remove("active");
-  elements.connected.classList.remove("active");
-  elements.disconnected.classList.remove("active");
+const VIEWS: View[] = ["landing", "waiting", "connected", "disconnected"];
 
-  // Show requested view
-  const viewElement = elements[view];
-  viewElement.classList.add("active");
+export function showView(view: View): void {
+  for (const v of VIEWS) {
+    elements[v].classList.toggle("active", v === view);
+  }
 
   if (view === "connected") {
     startUptime();

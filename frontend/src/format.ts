@@ -1,8 +1,8 @@
 // =============================================================================
 // Formatting helpers
+//
+// Dependency-free leaf: pure string/number formatting, no domain knowledge.
 // =============================================================================
-
-import { MAX_CLIPBOARD_SIZE } from "./constants";
 
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -13,8 +13,4 @@ export function formatSize(bytes: number): string {
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + "…";
-}
-
-export function clipboardTooBigMessage(size: number): string {
-  return `Clipboard is too big (${formatSize(size)}). ${formatSize(MAX_CLIPBOARD_SIZE)} max.`;
 }

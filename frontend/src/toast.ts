@@ -5,8 +5,10 @@
 import { ERROR_MESSAGES } from "./constants";
 import { elements } from "./dom";
 
+// Falls back for both unmapped codes and the empty string, so a server failure
+// that carries no error code still surfaces a readable toast.
 export function getErrorMessage(code: string): string {
-  return ERROR_MESSAGES[code] ?? code ?? "Something went sideways.";
+  return ERROR_MESSAGES[code] || "Something went sideways.";
 }
 
 export function showError(message: string): void {
