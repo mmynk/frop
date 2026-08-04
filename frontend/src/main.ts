@@ -1,5 +1,6 @@
 import { handlePasteEvent, sendClipboard } from "./clipboard";
 import { elements, isInputFocused } from "./dom";
+import { flushPendingHistory } from "./history";
 import {
   backToLanding,
   cancelRoom,
@@ -91,9 +92,15 @@ function setupEventListeners(): void {
   // returns — mobile browsers freeze the backoff timer while backgrounded, so
   // these events are the real trigger for recovering a dropped session.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") reconnectNow();
+    if (document.visibilityState === "visible") {
+      reconnectNow();
+    } else {
+      // Going away: persist anything still sitting in the coalescing window.
+      flushPendingHistory();
+    }
   });
   window.addEventListener("online", reconnectNow);
+  window.addEventListener("pagehide", flushPendingHistory);
 
   // Drag and drop
   elements.dropzone.addEventListener("dragover", (e) => {

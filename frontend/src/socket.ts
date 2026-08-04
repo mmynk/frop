@@ -25,23 +25,33 @@ interface ConnectOptions {
 }
 
 export function connect({ firstMessage, onMessage, onClose }: ConnectOptions): void {
+  // Abandon any previous socket first. Its close event arrives asynchronously,
+  // and every handler below is guarded on still being the current socket, so a
+  // straggler can't null out this live handle or misroute its first frame.
+  close();
+
   const ws = new WebSocket(getWsUrl());
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
+    if (state.ws !== ws) return;
     console.log("[WS] Connected");
     if (firstMessage) {
       sendMessage(firstMessage);
     }
   };
 
-  ws.onmessage = onMessage;
+  ws.onmessage = (event) => {
+    if (state.ws !== ws) return;
+    onMessage(event);
+  };
 
   ws.onerror = (error) => {
     console.error("[WS] Error:", error);
   };
 
   ws.onclose = () => {
+    if (state.ws !== ws) return;
     console.log("[WS] Disconnected");
     state.ws = null;
     onClose();
@@ -54,8 +64,16 @@ export function isConnected(): boolean {
   return state.ws !== null;
 }
 
+// Deliberate teardown: drop ownership immediately rather than waiting for the
+// async close event, so callers that follow up by inspecting connection state
+// (or opening a fresh socket) see the disconnect right away. The abandoned
+// socket's handlers are inert once state.ws no longer points at it, so no
+// onClose fires — this is a close the caller asked for, not a drop to report.
 export function close(): void {
-  state.ws?.close();
+  const ws = state.ws;
+  if (!ws) return;
+  state.ws = null;
+  ws.close();
 }
 
 export function sendMessage(msg: WsMessage): void {
@@ -72,23 +90,33 @@ export function sendMessage(msg: WsMessage): void {
  * Write one binary chunk, waiting first for the send buffer to drain below the
  * threshold. The wait is the backpressure that keeps a large transfer from
  * queueing unbounded data in memory.
+ *
+ * Returns false if the chunk could not be handed to a live socket, so callers
+ * stop rather than run to completion reporting a transfer the peer never got.
  */
-export async function sendBinary(buffer: ArrayBuffer): Promise<void> {
+export async function sendBinary(buffer: ArrayBuffer): Promise<boolean> {
   const ws = state.ws;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.error("[WS] Cannot send chunk - not connected");
-    return;
+    return false;
   }
-  await waitForBuffer(ws);
+  if (!(await waitForBuffer(ws))) return false;
   ws.send(buffer);
+  return true;
 }
 
-function waitForBuffer(ws: WebSocket): Promise<void> {
+// Resolves true once the buffer has drained, false if the socket died while
+// waiting. bufferedAmount is not cleared on close, so a socket that drops with
+// more than the threshold still queued would otherwise never drain and the
+// caller would await forever.
+function waitForBuffer(ws: WebSocket): Promise<boolean> {
   return new Promise((resolve) => {
     // bufferedAmount has no change event, so polling is the only option.
     const checkBuffer = () => {
-      if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
-        resolve();
+      if (ws.readyState !== WebSocket.OPEN || state.ws !== ws) {
+        resolve(false);
+      } else if (ws.bufferedAmount < MAX_BUFFER_SIZE) {
+        resolve(true);
       } else {
         setTimeout(checkBuffer, 10);
       }

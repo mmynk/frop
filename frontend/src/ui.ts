@@ -41,7 +41,7 @@ export function addTransferItem(
   item.append(head, track);
 
   elements.transferList.appendChild(item);
-  trimList(elements.transferList);
+  trimList(elements.transferList, "first");
   return item;
 }
 
@@ -69,6 +69,12 @@ export function markCancelled(element: HTMLElement): void {
     "cancelled";
 }
 
+export function markFailed(element: HTMLElement): void {
+  element.classList.add("cancelled");
+  element.querySelector<HTMLElement>(".transfer-meta")!.textContent =
+    "failed — connection lost";
+}
+
 // Attach a Save control to a completed incoming transfer. The download fires
 // from the user's tap (the gesture mobile browsers require) rather than
 // programmatically. The blob URL stays live for the item's lifetime so the
@@ -90,11 +96,18 @@ export function addDownloadButton(
   element.appendChild(a);
 }
 
-export function trimList(list: HTMLElement, max = MAX_HISTORY): void {
+// Drop the oldest entries once the list exceeds the cap. Which end is oldest
+// depends on how the list grows: transfers append (oldest first), clips prepend
+// (oldest last). Trimming the wrong end would evict the item just added.
+export function trimList(
+  list: HTMLElement,
+  oldest: "first" | "last",
+  max = MAX_HISTORY,
+): void {
   while (list.children.length > max) {
-    const last = list.lastElementChild;
-    if (last instanceof HTMLElement) revokeDownloadUrls(last);
-    last?.remove();
+    const stale = oldest === "first" ? list.firstElementChild : list.lastElementChild;
+    if (stale instanceof HTMLElement) revokeDownloadUrls(stale);
+    stale?.remove();
   }
 }
 

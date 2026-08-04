@@ -143,14 +143,14 @@ export function addClipboardSentNotification(content: string, persist = true): v
   const item = buildClipItem("clipboard sent", "just now", content, 100);
   item.classList.add("sent");
   elements.clipboardList.prepend(item);
-  trimList(elements.clipboardList);
+  trimList(elements.clipboardList, "last");
   if (persist) recordClip(true, content);
 }
 
 export function addClipboardReceivedNotification(content: string, persist = true): void {
   const item = buildClipItem("clipboard received", "just now", content, 200);
   elements.clipboardList.prepend(item);
-  trimList(elements.clipboardList);
+  trimList(elements.clipboardList, "last");
   if (persist) recordClip(false, content);
 }
 

@@ -5,10 +5,12 @@
 import { ERROR_MESSAGES } from "./constants";
 import { elements } from "./dom";
 
-// Falls back for both unmapped codes and the empty string, so a server failure
-// that carries no error code still surfaces a readable toast.
+// Prefers a friendly message, falls back to the raw code (still more use to the
+// user than a generic apology), and only goes generic when there is no code at
+// all — a failure the server sent without one.
 export function getErrorMessage(code: string): string {
-  return ERROR_MESSAGES[code] || "Something went sideways.";
+  if (!code) return "Something went sideways.";
+  return ERROR_MESSAGES[code] ?? code;
 }
 
 export function showError(message: string): void {

@@ -9,11 +9,13 @@
 import { CHUNK_SIZE, LARGE_FILE_THRESHOLD } from "./constants";
 import { recordFile } from "./history";
 import { sendBinary, sendMessage } from "./socket";
+import { showError } from "./toast";
 import {
   addDownloadButton,
   addTransferItem,
   markCancelled,
   markComplete,
+  markFailed,
   updateProgress,
 } from "./ui";
 import type { IncomingTransfer, WsMessage } from "./types";
@@ -65,6 +67,7 @@ async function sendFile(file: File): Promise<void> {
 
   let offset = 0;
   let cancelled = false;
+  let failed = false;
 
   while (offset < file.size) {
     // Check if this transfer was cancelled
@@ -79,12 +82,23 @@ async function sendFile(file: File): Promise<void> {
     const slice = file.slice(offset, end);
     const buffer = await slice.arrayBuffer();
     // Applies backpressure before writing.
-    await sendBinary(buffer);
+    if (!(await sendBinary(buffer))) {
+      console.error(`[Transfer] Connection lost mid-send: ${name}`);
+      failed = true;
+      break;
+    }
     offset = end;
     updateProgress(element, offset, file.size);
   }
 
   currentOutgoingSend = null;
+
+  if (failed) {
+    // Report the truncated transfer rather than completing it: the peer never
+    // received the whole file, so neither the UI nor history may claim success.
+    markFailed(element);
+    return;
+  }
 
   if (cancelled) {
     sendMessage({ type: "file_cancel", name, reason: "user_cancelled" });
@@ -175,13 +189,25 @@ export async function handleFileEnd(): Promise<void> {
   );
 
   // If we were streaming to disk, the file is already written — the user
-  // picked its location up front, so nothing more to offer.
+  // picked its location up front, so nothing more to offer. Chunks buffered
+  // after a failed disk write are the exception: the on-disk copy is short by
+  // exactly those bytes, so surface the failure instead of claiming success.
   if (incomingTransfer.writable) {
+    const recovered = incomingTransfer.chunks.length > 0;
     try {
       await incomingTransfer.writable.close();
       console.log(`[Transfer] Streaming download complete`);
     } catch (err) {
       console.error(`[Transfer] Failed to close writable stream:`, err);
+    }
+    if (recovered) {
+      console.error(
+        `[Transfer] Disk writes failed mid-transfer; saved file is incomplete: ${incomingTransfer.name}`,
+      );
+      markFailed(incomingTransfer.element);
+      showError(`${incomingTransfer.name} could not be written to disk.`);
+      incomingTransfer = null;
+      return;
     }
   } else {
     // Offer the file behind a tap rather than auto-downloading: iOS Safari

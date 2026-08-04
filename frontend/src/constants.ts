@@ -14,10 +14,14 @@ export const MAX_HISTORY = 10;
 // How long a "Copied" confirmation stays on a control before reverting.
 export const COPY_FEEDBACK_MS = 1200;
 
-// Error code to user-friendly message mapping
+// Error code to user-friendly message mapping. Keys match the error strings the
+// backend sends (internal/room/errors.go, internal/session/errors.go).
 export const ERROR_MESSAGES: Record<string, string> = {
   "room not found": "No room with that code.",
   "room full": "That room already has two people.",
+  "room expired": "That code has expired. Start a new room.",
+  "session not found": "Session ended. Start a new room.",
   "session expired": "Session ended. Start a new room.",
+  "peer disconnected": "The other device disconnected.",
   "invalid request": "Something went sideways. Try again.",
 };

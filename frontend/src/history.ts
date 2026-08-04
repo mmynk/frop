@@ -77,6 +77,16 @@ function scheduleFlush(): void {
   flushTimer = window.setTimeout(flush, FLUSH_DELAY_MS);
 }
 
+// Write out any pending records before the page can go away. The coalescing
+// timer is what makes bulk recording cheap, but it also means the most recent
+// records are the ones a refresh would lose — and mobile browsers freeze the
+// timer when a tab is backgrounded, so `pagehide` may be the last chance to run.
+export function flushPendingHistory(): void {
+  if (flushTimer === null) return;
+  clearTimeout(flushTimer);
+  flush();
+}
+
 export function clearStoredHistory(token: string | null): void {
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
