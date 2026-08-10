@@ -731,9 +731,32 @@ body {
     color: var(--surface);
 }
 
+/* Already saved, still offered: dimmed to distinguish it from a pending save,
+   but a full-strength hover keeps it reading as a live control rather than a
+   disabled one. */
 .transfer-item.saved .transfer-download {
     color: var(--ink-subtle);
     border-color: var(--border-strong);
+}
+
+.transfer-item.saved .transfer-download:hover {
+    color: var(--surface);
+    border-color: var(--accent);
+}
+
+/* Batch save. Wears .transfer-download for the accent-outline look and its
+   hover, adding only the full-width sizing that suits a list-level control. */
+.save-all {
+    width: 100%;
+    margin-top: 1.25rem;
+    font-size: 11px;
+    padding: 0.6rem;
+}
+
+/* An author `display` outranks the UA rule for [hidden], and .transfer-download
+   sets one, so the attribute needs honoring explicitly here. */
+.save-all[hidden] {
+    display: none;
 }
 
 /* Disconnected */

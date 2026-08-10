@@ -33,6 +33,7 @@ export const elements = {
   selectFilesBtn: document.getElementById("selectFiles")!,
   selectFolderBtn: document.getElementById("selectFolder")!,
   sendClipboardBtn: document.getElementById("sendClipboard")!,
+  saveAllBtn: document.getElementById("saveAll")!,
   transferList: document.getElementById("transferList")!,
   clipboardList: document.getElementById("clipboardList")!,
   statusRight: document.getElementById("statusRight")!,

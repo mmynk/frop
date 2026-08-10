@@ -33,6 +33,9 @@ export interface IncomingTransfer {
   // Backed by ArrayBuffer specifically, not ArrayBufferLike: these come from
   // socket frames, and Blob rejects SharedArrayBuffer-backed views.
   chunks: Uint8Array<ArrayBuffer>[];
+  // CRC32 over exactly the bytes held in `chunks`, folded in as they arrive so
+  // no later pass over the data is needed. 0 while `chunks` is empty.
+  crc: number;
   element: HTMLElement;
   // For streaming large files
   writable?: FileSystemWritableFileStream;

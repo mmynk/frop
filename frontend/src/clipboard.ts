@@ -10,7 +10,7 @@ import { isConnected, sendMessage } from "./socket";
 import { state } from "./state";
 import { queueFiles } from "./transfer";
 import { showError } from "./toast";
-import { trimList } from "./ui";
+import { trimClipboardList } from "./ui";
 import type { WsMessage } from "./types";
 
 function tooBigMessage(size: number): string {
@@ -143,14 +143,14 @@ export function addClipboardSentNotification(content: string, persist = true): v
   const item = buildClipItem("clipboard sent", "just now", content, 100);
   item.classList.add("sent");
   elements.clipboardList.prepend(item);
-  trimList(elements.clipboardList, "last");
+  trimClipboardList();
   if (persist) recordClip(true, content);
 }
 
 export function addClipboardReceivedNotification(content: string, persist = true): void {
   const item = buildClipItem("clipboard received", "just now", content, 200);
   elements.clipboardList.prepend(item);
-  trimList(elements.clipboardList, "last");
+  trimClipboardList();
   if (persist) recordClip(false, content);
 }
 

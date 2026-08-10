@@ -10,6 +10,7 @@ import {
 import { state } from "./state";
 import { initTheme, cycleTheme } from "./theme";
 import { processDroppedItems, queueFiles } from "./transfer";
+import { saveAll } from "./ui";
 import { showView } from "./views";
 import { reconnectNow } from "./ws";
 
@@ -68,6 +69,9 @@ function setupEventListeners(): void {
       elements.folderInput.value = "";
     }
   });
+
+  // Connected view - batch save
+  elements.saveAllBtn.addEventListener("click", saveAll);
 
   // Clipboard
   elements.sendClipboardBtn.addEventListener("click", sendClipboard);

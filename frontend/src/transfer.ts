@@ -18,6 +18,7 @@ import {
   markFailed,
   updateProgress,
 } from "./ui";
+import { crc32Update } from "./crc32";
 import type { IncomingTransfer, WsMessage } from "./types";
 
 // Transfer state
@@ -145,9 +146,18 @@ export async function handleFileStart(msg: WsMessage): Promise<void> {
     // Buffers the file when not streaming, and also catches chunks if a disk
     // write fails partway through a streamed transfer.
     chunks: [],
+    crc: 0,
     element,
     writable,
   };
+}
+
+// Retain a chunk in memory, keeping the running CRC over exactly the retained
+// bytes. Both live here so neither can advance without the other.
+function bufferChunk(transfer: IncomingTransfer, data: ArrayBuffer): void {
+  const bytes = new Uint8Array(data);
+  transfer.chunks.push(bytes);
+  transfer.crc = crc32Update(transfer.crc, bytes);
 }
 
 export async function handleBinaryChunk(data: ArrayBuffer): Promise<void> {
@@ -163,11 +173,11 @@ export async function handleBinaryChunk(data: ArrayBuffer): Promise<void> {
     } catch (err) {
       console.error(`[Transfer] Failed to write chunk to disk:`, err);
       // Fall back to memory accumulation
-      incomingTransfer.chunks.push(new Uint8Array(data));
+      bufferChunk(incomingTransfer, data);
     }
   } else {
     // Accumulate in memory for smaller files or when streaming not available
-    incomingTransfer.chunks.push(new Uint8Array(data));
+    bufferChunk(incomingTransfer, data);
   }
 
   incomingTransfer.received += data.byteLength;
@@ -193,19 +203,28 @@ export async function handleFileEnd(): Promise<void> {
   // after a failed disk write are the exception: the on-disk copy is short by
   // exactly those bytes, so surface the failure instead of claiming success.
   if (incomingTransfer.writable) {
-    const recovered = incomingTransfer.chunks.length > 0;
+    // Either fault leaves the on-disk copy short of the whole file: buffered
+    // chunks mean a write failed, and close() is where the final flush lands.
+    let incomplete = incomingTransfer.chunks.length > 0;
     try {
       await incomingTransfer.writable.close();
       console.log(`[Transfer] Streaming download complete`);
     } catch (err) {
       console.error(`[Transfer] Failed to close writable stream:`, err);
+      incomplete = true;
     }
-    if (recovered) {
+    if (incomplete) {
       console.error(
         `[Transfer] Disk writes failed mid-transfer; saved file is incomplete: ${incomingTransfer.name}`,
       );
       markFailed(incomingTransfer.element);
       showError(`${incomingTransfer.name} could not be written to disk.`);
+      recordFile({
+        name: incomingTransfer.name,
+        size: incomingTransfer.size,
+        status: "cancelled",
+        direction: "receive",
+      });
       incomingTransfer = null;
       return;
     }
@@ -217,7 +236,11 @@ export async function handleFileEnd(): Promise<void> {
     // The blob owns the bytes now; release the chunk views so the two don't
     // both stay resident (up to LARGE_FILE_THRESHOLD each).
     incomingTransfer.chunks = [];
-    addDownloadButton(incomingTransfer.element, blob, incomingTransfer.name);
+    addDownloadButton(incomingTransfer.element, {
+      name: incomingTransfer.name,
+      blob,
+      crc: incomingTransfer.crc,
+    });
   }
 
   markComplete(incomingTransfer.element, incomingTransfer.size);
